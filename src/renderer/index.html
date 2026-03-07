@@ -1,0 +1,254 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <title>BlackBird Player</title>
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self' data:; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; media-src 'self' file:; font-src https://fonts.gstatic.com;" />
+  <link href="./src/assets/main.css" type="text/css" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body class="dark-theme">
+  <div id="app" class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-container">
+          <img src="./src/assets/logotipo.svg" alt="BlackBird Logo" class="logo-img">
+          <h1>BlackBird</h1>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-group">
+          <h3>Library</h3>
+          <ul>
+            <li class="active" id="btn-all-songs"><i data-lucide="music"></i> All Songs</li>
+            <li id="btn-albums"><i data-lucide="disc"></i> Albums</li>
+            <li id="btn-artists"><i data-lucide="mic"></i> Artists</li>
+            <li id="btn-all-videos"><i data-lucide="video"></i> All Videos</li>
+            <li id="btn-favorites"><i data-lucide="heart"></i> My Favorites</li>
+          </ul>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-header">
+            <h3>Playlists</h3>
+            <button class="btn-icon circle-small" id="btn-new-playlist" title="New Playlist">
+              <i data-lucide="plus"></i>
+            </button>
+          </div>
+          <ul id="playlist-list">
+            <!-- Rendered by JS -->
+          </ul>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="btn-primary" id="btn-add-folder">Add Music Folder</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="main-header">
+        <div class="search-bar">
+          <input type="text" placeholder="Search for songs, artists, albums..." id="search-input">
+        </div>
+        <div class="header-actions">
+          <button class="btn-secondary" id="btn-import-media">
+            <i data-lucide="upload"></i> Import Media
+          </button>
+          <button class="btn-secondary" id="btn-import-youtube">
+            <i data-lucide="youtube"></i> Import from Youtube
+          </button>
+        </div>
+        <div class="user-profile">
+          <!-- Profile icon here if needed -->
+        </div>
+      </header>
+
+      <div class="content-view" id="content-view">
+        <div class="welcome-screen">
+          <h2>Welcome to BlackBird</h2>
+          <p>Select a folder to start your music journey.</p>
+          <button class="btn-primary large" id="btn-add-folder-hero">Pick a Folder</button>
+        </div>
+      </div>
+
+      <div id="video-overlay" class="video-overlay hidden">
+        <video id="video-player" controls></video>
+        <button id="btn-close-video" class="btn-icon circle"><i data-lucide="x"></i></button>
+      </div>
+    </main>
+
+    <footer class="player-bar">
+      <div class="current-track-info">
+        <div class="track-artwork" id="player-artwork">
+          <div class="artwork-placeholder"></div>
+        </div>
+        <div class="track-details">
+          <div class="track-title" id="player-title">Not Playing</div>
+          <div class="track-artist-album">
+            <span id="player-artist">Select a song to start</span>
+            <span class="dot">•</span>
+            <span id="player-album"></span>
+          </div>
+          <div class="track-meta-tags">
+            <span id="player-format" class="tag small"></span>
+            <button class="btn-text-edit" id="btn-edit-track" title="Edit Metadata">
+              <i data-lucide="edit-3"></i> Edit
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="player-controls-container">
+        <div class="control-buttons">
+          <button class="btn-icon" id="btn-shuffle" title="Shuffle"><i data-lucide="shuffle"></i></button>
+          <button class="btn-icon" id="btn-prev" title="Previous"><i data-lucide="skip-back"></i></button>
+          <button class="btn-icon circle primary" id="btn-play-pause" title="Play/Pause"><i
+              data-lucide="play"></i></button>
+          <button class="btn-icon" id="btn-next" title="Next"><i data-lucide="skip-forward"></i></button>
+          <button class="btn-icon" id="btn-repeat" title="Repeat"><i data-lucide="repeat"></i></button>
+          <button class="btn-icon btn-favorite" id="btn-toggle-favorite" title="Toggle Favorite">
+            <i data-lucide="heart"></i>
+          </button>
+        </div>
+
+        <div class="progress-container">
+          <span id="current-time">0:00</span>
+          <div class="progress-bar-wrapper">
+            <input type="range" class="progress-bar" id="seek-slider" value="0" step="0.1">
+            <div class="progress-fill" id="seek-fill"></div>
+          </div>
+          <span id="total-time">0:00</span>
+        </div>
+      </div>
+
+      <div class="volume-controls">
+        <button class="btn-icon" id="btn-mute"><i data-lucide="volume-2"></i></button>
+        <div class="volume-bar-wrapper">
+          <input type="range" class="volume-bar" id="volume-slider" value="80" max="100">
+          <div class="volume-fill" id="volume-fill"></div>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <div id="modal-container" class="modal-overlay hidden">
+    <!-- Playlist Modal -->
+    <div id="playlist-modal" class="modal-content hidden">
+      <div class="modal-header">
+        <h2>Create New Playlist</h2>
+        <button class="btn-icon circle-small btn-close-modal"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <label for="playlist-name">Playlist Name</label>
+        <input type="text" id="playlist-name" placeholder="My Awesome Mix">
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary btn-cancel-modal">Cancel</button>
+        <button class="btn-primary" id="btn-save-playlist">Create Playlist</button>
+      </div>
+    </div>
+
+    <!-- Edit Metadata Modal -->
+    <div id="edit-modal" class="modal-content hidden">
+      <div class="modal-header">
+        <h2>Edit Metadata</h2>
+        <button class="btn-icon circle-small btn-close-modal"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="edit-artwork-section">
+          <div class="edit-artwork-preview" id="edit-artwork-preview">
+            <div class="artwork-placeholder"></div>
+          </div>
+          <div class="edit-artwork-info">
+            <label>Artwork (JPG)</label>
+            <input type="file" id="edit-artwork-input" accept="image/jpeg,image/jpg"
+              style="font-size: 12px; margin-top: 8px;">
+            <p class="input-hint">JPG format is recommended.</p>
+          </div>
+        </div>
+
+        <div class="input-group" style="margin-top:24px;">
+          <label for="edit-title">Title</label>
+          <input type="text" id="edit-title">
+        </div>
+        <div class="input-group" style="margin-top:16px;">
+          <label for="edit-artist">Artist</label>
+          <input type="text" id="edit-artist">
+        </div>
+        <div class="input-group" style="margin-top:16px;">
+          <label for="edit-album">Album</label>
+          <input type="text" id="edit-album">
+        </div>
+      </div>
+      <div class="modal-spacer"></div>
+      <div class="modal-footer">
+        <button class="btn-secondary btn-cancel-modal">Cancel</button>
+        <button class="btn-primary" id="btn-save-edit">Save Changes</button>
+      </div>
+    </div>
+
+    <!-- YouTube Modal -->
+    <div id="youtube-modal" class="modal-content hidden">
+      <div class="modal-header">
+        <h2>Import from YouTube</h2>
+        <button class="btn-icon circle-small btn-close-modal"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="input-group">
+          <label for="yt-url">YouTube URL</label>
+          <input type="text" id="yt-url" placeholder="https://www.youtube.com/watch?v=...">
+        </div>
+        <div class="input-group" style="margin-top:16px;">
+          <label for="yt-title">Title</label>
+          <input type="text" id="yt-title" placeholder="Video Title">
+        </div>
+        <div class="input-group" style="margin-top:16px;">
+          <label for="yt-description">Description</label>
+          <textarea id="yt-description"
+            style="width: 100%; background: var(--glass); border: 1px solid var(--border); padding: 12px 16px; border-radius: var(--radius-md); color: var(--text-main); outline: none; transition: all 0.2s ease; resize: none; height: 80px;"
+            placeholder="Video Description"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary btn-cancel-modal">Cancel</button>
+        <button class="btn-primary" id="btn-save-youtube">Import Video</button>
+      </div>
+    </div>
+
+    <!-- Playlist Selection Modal -->
+    <div id="select-playlist-modal" class="modal-content hidden">
+      <div class="modal-header">
+        <h2 id="select-playlist-title">Import to Playlist</h2>
+        <button class="btn-icon circle-small btn-close-modal"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 16px; font-size: 14px; color: var(--text-muted);">Select a playlist to add your media
+          to.</p>
+        <div id="import-playlist-options"
+          style="display: flex; flex-direction: column; gap: 8px; max-height: 250px; overflow-y: auto;">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary btn-cancel-modal">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script type="module" src="./src/renderer.ts"></script>
+  <script>
+    window.addEventListener('load', () => {
+      lucide.createIcons();
+    });
+  </script>
+</body>
+
+</html>
