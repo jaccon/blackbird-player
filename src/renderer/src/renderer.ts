@@ -627,24 +627,31 @@ async function handleSaveEdit(): Promise<void> {
 async function handleAddFolder(): Promise<void> {
   console.log('handleAddFolder triggered')
   try {
-    const folderPath = await (window as any).api.selectFolder()
-    console.log('Selected folder:', folderPath)
-    if (folderPath) {
+    const paths = await (window as any).api.selectFolder()
+    console.log('Selected paths:', paths)
+    if (paths && paths.length > 0) {
       contentView.innerHTML = `
         <div class="welcome-screen">
           <div class="spinner"></div>
           <h2>Scanning Library...</h2>
-          <p>Analyzing: ${folderPath}</p>
-          <p>Please wait while we index your music.</p>
+          <p>Analyzing ${paths.length} source(s)...</p>
+          <p>Please wait while we index your media.</p>
         </div>
       `
-      const result = await (window as any).api.scanFolder(folderPath)
-      console.log('Scan result:', result)
+      
+      for (const p of paths) {
+        try {
+          const result = await (window as any).api.scanFolder(p)
+          console.log(`Scan result for ${p}:`, result)
+        } catch (e) {
+          console.error(`Failed scanning ${p}:`, e)
+        }
+      }
       await loadLibrary()
     }
   } catch (error) {
     console.error('Error in handleAddFolder:', error)
-    alert('Failed to add folder. Check console for details.')
+    alert('Failed to add media. Check console for details.')
     await loadLibrary() // Restore UI state
   }
 }

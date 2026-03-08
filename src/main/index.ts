@@ -248,12 +248,12 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('select-folder', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
-      properties: ['openDirectory']
+      properties: ['openFile', 'openDirectory', 'multiSelections']
     })
     if (canceled) {
       return null
     } else {
-      return filePaths[0]
+      return filePaths
     }
   })
 
@@ -281,10 +281,11 @@ app.whenReady().then(() => {
                 artist: metadata.artist || '',
                 album: metadata.album || '',
                 file_path: file,
-                format: metadata.format,
-                cover: undefined,
-                duration: metadata.duration,
-                is_favorite: 0
+                format: metadata.format || 'unknown',
+                cover: metadata.cover || null,
+                duration: metadata.duration || 0,
+                is_favorite: 0,
+                description: metadata.description || ''
               }
               dbOps.upsertTrack(dbTrack)
             }
