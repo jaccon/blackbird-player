@@ -14,6 +14,7 @@ export interface TrackMetadata {
   filePath: string;
   fileName: string;
   format: string;
+  description?: string;
 }
 
 export async function getMetadata(filePath: string, skipCovers = false): Promise<TrackMetadata> {

@@ -13,6 +13,7 @@ export interface TrackMetadata {
   filePath: string;
   fileName: string;
   format: string;
+  description?: string;
 }
 
 export interface Playlist {

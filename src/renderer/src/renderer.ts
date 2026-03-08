@@ -12,6 +12,7 @@ export interface TrackMetadata {
   fileName: string;
   format: string;
   is_favorite?: number;
+  description?: string;
 }
 
 export interface Playlist {
@@ -68,7 +69,7 @@ let btnCloseVideo: HTMLElement
 
 // DOM Elements
 let contentView: HTMLElement
-let btnAddFolder: HTMLElement
+
 let btnAddFolderHero: HTMLElement
 let playerTitle: HTMLElement
 let playerArtist: HTMLElement
@@ -105,19 +106,20 @@ let inputPlaylistName: HTMLInputElement
 let inputEditTitle: HTMLInputElement
 let inputEditArtist: HTMLInputElement
 let inputEditAlbum: HTMLInputElement
+let inputEditKind: HTMLInputElement
+let inputEditDescription: HTMLTextAreaElement
 let inputEditArtwork: HTMLInputElement
 let previewEditArtwork: HTMLElement
 let currentEditArtworkBase64: string | null = null
+let trackBeingEdited: TrackMetadata | null = null
 let searchInput: HTMLInputElement
 let btnImportMedia: HTMLElement
 let btnImportYoutube: HTMLElement
 let youtubeModal: HTMLElement
-let selectPlaylistModal: HTMLElement
+
 let btnSaveYoutube: HTMLElement
 let inputYTUrl: HTMLInputElement
-let inputYTTitle: HTMLInputElement
-let inputYTDescription: HTMLTextAreaElement
-let importPlaylistOptions: HTMLElement
+
 
 // Theme Switcher Element
 let themeSelector: HTMLSelectElement
@@ -132,7 +134,7 @@ async function init(): Promise<void> {
     videoOverlay = document.getElementById('video-overlay')!
     btnCloseVideo = document.getElementById('btn-close-video')!
     contentView = document.getElementById('content-view')!
-    btnAddFolder = document.getElementById('btn-add-folder')!
+
     btnAddFolderHero = document.getElementById('btn-add-folder-hero')!
     playerTitle = document.getElementById('player-title')!
     playerArtist = document.getElementById('player-artist')!
@@ -170,13 +172,13 @@ async function init(): Promise<void> {
     btnImportMedia = document.getElementById('btn-import-media')!
     btnImportYoutube = document.getElementById('btn-import-youtube')!
     youtubeModal = document.getElementById('youtube-modal')!
-    selectPlaylistModal = document.getElementById('select-playlist-modal')!
+
     btnSaveYoutube = document.getElementById('btn-save-youtube')!
     inputYTUrl = document.getElementById('yt-url') as HTMLInputElement
-    inputYTTitle = document.getElementById('yt-title') as HTMLInputElement
-    inputYTDescription = document.getElementById('yt-description') as HTMLTextAreaElement
-    importPlaylistOptions = document.getElementById('import-playlist-options')!
+
     inputEditAlbum = document.getElementById('edit-album') as HTMLInputElement
+    inputEditKind = document.getElementById('edit-kind') as HTMLInputElement
+    inputEditDescription = document.getElementById('edit-description') as HTMLTextAreaElement
     inputEditArtwork = document.getElementById('edit-artwork-input') as HTMLInputElement
     previewEditArtwork = document.getElementById('edit-artwork-preview')!
 
@@ -184,15 +186,37 @@ async function init(): Promise<void> {
     const footer = document.querySelector('.sidebar-footer')
     if (footer) {
       footer.innerHTML = `
-        <div class="footer-controls" style="display:flex; flex-direction:column; gap:12px; width:100%; align-items:center;">
-          <button class="btn-primary" id="btn-add-folder" style="width:100%;">Add Music Folder</button>
-          <select id="theme-selector" style="width:100%; background:var(--glass); color:var(--text-main); border:1px solid var(--border); padding:8px; border-radius:var(--radius-md); font-family:inherit;">
-            <option value="">Select Theme</option>
-          </select>
+        <div class="theme-management-container" style="display:flex; flex-direction:column; gap:8px; width:100%; padding:12px; background:rgba(0,0,0,0.15); border:1px solid var(--border); border-radius:var(--radius-md);">
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--text-muted); font-weight:600;">Theme Options</div>
+          <div style="display:flex; gap:8px; width:100%;">
+            <select id="theme-selector" style="flex:1; width:auto; background:var(--glass); color:var(--text-main); border:1px solid var(--border); padding:8px; border-radius:var(--radius-md); font-family:inherit; outline:none; cursor:pointer;">
+              <option value="">Select Theme</option>
+            </select>
+            <button class="btn-secondary" id="btn-import-theme" title="Import Theme" style="padding: 8px; display:flex; align-items:center; justify-content:center;">
+              <i data-lucide="download"></i>
+            </button>
+          </div>
         </div>
+        <button class="btn-secondary" id="btn-update-player" style="margin-top: 12px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
+          Update Player
+        </button>
       `
-      btnAddFolder = document.getElementById('btn-add-folder')!
+
       themeSelector = document.getElementById('theme-selector') as HTMLSelectElement
+      
+      document.getElementById('btn-update-player')?.addEventListener('click', () => {
+        window.open('https://github.com/jaccon/blackbird-player', '_blank')
+      })
+      
+      document.getElementById('btn-import-theme')?.addEventListener('click', async () => {
+        const result = await (window as any).api.importTheme()
+        if (result && result.success) {
+          await setupThemes()
+          alert('Theme imported successfully!')
+        } else if (result && result.error) {
+          alert(`Failed to import theme: ${result.error}`)
+        }
+      })
     }
 
     if ((window as any).electron?.process?.platform === 'darwin') {
@@ -243,13 +267,13 @@ async function setupThemes(): Promise<void> {
     themeSelector.value = savedTheme
   }
 
-  themeSelector.addEventListener('change', () => {
+  themeSelector.onchange = () => {
     const theme = availableThemes.find(t => t.name === themeSelector.value)
     if (theme) {
       applyTheme(theme)
       localStorage.setItem('selected-theme', theme.name)
     }
-  })
+  }
 }
 
 function applyTheme(theme: Theme): void {
@@ -327,7 +351,7 @@ function renderPlaylistSidebar(): void {
 }
 
 function attachListeners(): void {
-  btnAddFolder.addEventListener('click', handleAddFolder)
+
   btnAddFolderHero?.addEventListener('click', handleAddFolder)
   
   btnPlayPause.addEventListener('click', togglePlay)
@@ -356,7 +380,10 @@ function attachListeners(): void {
   btnAllVideos.addEventListener('click', () => {
     selectedTrackUuids.clear()
     setActiveNav('btn-all-videos')
-    const videos = library.filter(t => t.format?.toLowerCase().includes('mp4'))
+    const videos = library.filter(t => {
+      const format = t.format?.toLowerCase() || ''
+      return format.includes('mp4') || format.includes('youtube')
+    })
     renderTrackList(videos, 'All Videos')
   })
 
@@ -367,7 +394,7 @@ function attachListeners(): void {
     renderTrackList(favs, 'My Favorites')
   })
 
-  btnImportMedia.addEventListener('click', handleImportMedia)
+  btnImportMedia.addEventListener('click', handleAddFolder)
   btnImportYoutube.addEventListener('click', () => {
     modalContainer.classList.remove('hidden')
     youtubeModal.classList.remove('hidden')
@@ -436,7 +463,9 @@ function attachListeners(): void {
       const title = (track.title || '').toLowerCase()
       const artist = (track.artist || '').toLowerCase()
       const album = (track.album || '').toLowerCase()
-      return title.includes(query) || artist.includes(query) || album.includes(query)
+      const format = (track.format || '').toLowerCase()
+      const description = (track.description || '').toLowerCase()
+      return title.includes(query) || artist.includes(query) || album.includes(query) || format.includes(query) || description.includes(query)
     })
 
     renderTrackList(filtered, `Search results for "${query}"`)
@@ -506,17 +535,22 @@ function setActiveNav(target: string | HTMLElement): void {
   if (element) element.classList.add('active')
 }
 
-async function handleEditSidebarTrack(): Promise<void> {
-  console.log('handleEditSidebarTrack called. Current sidebarTrack:', sidebarTrack)
-  if (!sidebarTrack) {
-    console.warn('No sidebarTrack found!')
+async function handleEditSidebarTrack(trackId?: string): Promise<void> {
+  const targetUuid = trackId || sidebarTrack?.uuid
+  if (!targetUuid) {
+    console.warn('No track passed and no sidebarTrack found!')
     return
   }
   
-  const track = sidebarTrack
+  const track = library.find(t => t.uuid === targetUuid) || sidebarTrack
+  if (!track) return
+
+  trackBeingEdited = track
   inputEditTitle.value = track.title || track.fileName || ''
   inputEditArtist.value = track.artist || ''
   inputEditAlbum.value = track.album || ''
+  inputEditKind.value = track.format || ''
+  inputEditDescription.value = track.description || ''
   inputEditArtwork.value = '' 
   currentEditArtworkBase64 = track.cover || null
   
@@ -533,18 +567,22 @@ async function handleEditSidebarTrack(): Promise<void> {
 }
 
 async function handleSaveEdit(): Promise<void> {
-  if (!sidebarTrack) return
+  if (!trackBeingEdited) return
   
-  const track = sidebarTrack
+  const track = trackBeingEdited
   const newTitle = inputEditTitle.value.trim()
   const newArtist = inputEditArtist.value.trim()
   const newAlbum = inputEditAlbum.value.trim()
+  const newKind = inputEditKind.value.trim()
+  const newDesc = inputEditDescription.value.trim()
 
   try {
     const updatedMetadata: any = {
       title: newTitle || track.title,
       artist: newArtist || track.artist,
-      album: newAlbum || track.album
+      album: newAlbum || track.album,
+      format: newKind || track.format,
+      description: newDesc
     }
 
     if (currentEditArtworkBase64) {
@@ -557,17 +595,26 @@ async function handleSaveEdit(): Promise<void> {
     track.title = updatedMetadata.title
     track.artist = updatedMetadata.artist
     track.album = updatedMetadata.album
+    track.format = updatedMetadata.format
+    track.description = updatedMetadata.description
+    
     if (updatedMetadata.cover) {
       track.cover = updatedMetadata.cover
     }
     
     // Refresh UI
-    updateSidebarUI(track)
+    if (sidebarTrack && sidebarTrack.uuid === track.uuid) {
+      updateSidebarUI(track)
+    } else if (currentTrackIndex >= 0 && currentPlaylist[currentTrackIndex]?.uuid === track.uuid) {
+      updateSidebarUI(track)
+    }
+    
     renderTrackList(lastTrackListView, lastListViewTitle)
     
     // Close modal
     modalContainer.classList.add('hidden')
     editModal.classList.add('hidden')
+    trackBeingEdited = null
   } catch (err) {
     console.error('Failed to update track:', err)
     alert('Failed to save changes.')
@@ -602,93 +649,42 @@ async function handleAddFolder(): Promise<void> {
   }
 }
 
-async function handleImportMedia(): Promise<void> {
-  const filePaths = await (window as any).api.selectFiles()
-  if (!filePaths || filePaths.length === 0) return
-  
-  showPlaylistSelector(async (playlistId) => {
-    for (const file of filePaths) {
-      const meta = await (window as any).api.processMeta(file)
-      const uuid = self.crypto.randomUUID()
-      const track = {
-        uuid,
-        title: meta.title || file.split(/[\\\/]/).pop(),
-        artist: meta.artist || 'Unknown Artist',
-        album: meta.album || 'Unknown Album',
-        file_path: file,
-        format: meta.format || file.split('.').pop(),
-        duration: meta.duration || 0,
-        is_favorite: 0
-      }
-      await (window as any).api.upsertTrack(track)
-      await (window as any).api.addToPlaylist(playlistId, uuid)
-    }
-    await loadLibrary()
-    alert(`Imported ${filePaths.length} files to playlist.`)
-  })
-}
-
 async function handleSaveYoutube(): Promise<void> {
   const url = inputYTUrl.value.trim()
-  const title = inputYTTitle.value.trim()
-  const description = inputYTDescription.value.trim()
   
   if (!url) return alert('Please enter a YouTube URL')
   
+  // Show visual feedback or disable button if you want
   const meta = await (window as any).api.getYTMeta(url)
   if (meta.error) return alert(meta.error)
   
-  showPlaylistSelector(async (playlistId) => {
-    const uuid = self.crypto.randomUUID()
-    const track = {
-      uuid,
-      title: title || 'YouTube Video',
-      artist: 'YouTube',
-      album: description || 'YouTube Visuals',
-      file_path: url, // Store URL as file path
-      format: 'youtube', 
-      cover: meta.thumbnail,
-      duration: 0,
-      is_favorite: 0
-    }
-    await (window as any).api.upsertTrack(track)
-    await (window as any).api.addToPlaylist(playlistId, uuid)
-    
-    // Clear and close
-    inputYTUrl.value = ''
-    inputYTTitle.value = ''
-    inputYTDescription.value = ''
-    modalContainer.classList.add('hidden')
-    youtubeModal.classList.add('hidden')
-    
-    await loadLibrary()
-  })
+  const uuid = self.crypto.randomUUID()
+  const track = {
+    uuid,
+    title: meta.title || 'YouTube Video',
+    artist: meta.author || 'YouTube',
+    album: 'YouTube Visuals',
+    file_path: url,
+    format: 'youtube', 
+    cover: meta.thumbnail,
+    duration: 0,
+    is_favorite: 0
+  }
+  
+  await (window as any).api.upsertTrack(track)
+  
+  // Clear and close
+  inputYTUrl.value = ''
+  modalContainer.classList.add('hidden')
+  youtubeModal.classList.add('hidden')
+  
+  await loadLibrary()
+  
+  // Optionally, automatically swap to "All Videos" to show the new item
+  document.getElementById('btn-all-videos')?.click()
 }
 
-function showPlaylistSelector(onSelect: (id: string) => void): void {
-  importPlaylistOptions.innerHTML = ''
-  userPlaylists.forEach(pl => {
-    const div = document.createElement('div')
-    div.className = 'playlist-option-item'
-    div.style.padding = '12px'
-    div.style.background = 'var(--glass)'
-    div.style.borderRadius = 'var(--radius-md)'
-    div.style.cursor = 'pointer'
-    div.style.transition = 'all 0.2s ease'
-    div.innerHTML = `<span>${pl.name}</span>`
-    div.onclick = () => {
-      onSelect(pl.id)
-      selectPlaylistModal.classList.add('hidden')
-      if (youtubeModal.classList.contains('hidden')) {
-        modalContainer.classList.add('hidden')
-      }
-    }
-    importPlaylistOptions.appendChild(div)
-  })
-  
-  modalContainer.classList.remove('hidden')
-  selectPlaylistModal.classList.remove('hidden')
-}
+
 
 function renderTrackList(tracks: TrackMetadata[], title = 'All Songs'): void {
   // If we already have a sidebarTrack, try to keep it if it's in the list
@@ -736,7 +732,13 @@ function renderTrackList(tracks: TrackMetadata[], title = 'All Songs'): void {
                 <div class="track-list-artist">${track.artist || 'Unknown'}</div>
               </div>
               <div class="track-album-cell">${track.album || 'Unknown Album'}</div>
-              <div class="track-duration">${formatTime(track.duration || 0)}</div>
+              <div class="track-kind-cell" style="font-size: 13px; color: var(--text-muted); text-transform: uppercase;">${track.format || 'Unknown'}</div>
+              <div class="track-duration" style="display:flex; align-items:center; justify-content:flex-end; gap:16px;">
+                 ${formatTime(track.duration || 0)}
+                 <button class="btn-icon circle-small btn-edit-list-item" data-uuid="${track.uuid}" title="Edit Metadata" style="transition:all 0.2s; background:var(--glass);" onclick="event.stopPropagation(); window.handleEditSidebarTrack('${track.uuid}')">
+                   <i data-lucide="edit"></i>
+                 </button>
+              </div>
             </div>
           `).join('')}
         </div>
@@ -1024,13 +1026,15 @@ function playTrack(index: number): void {
   if (track.format === 'youtube') {
     audio.pause()
     videoOverlay.classList.remove('hidden')
-    videoPlayer.src = `https://www.youtube.com/embed/${track.filePath.split('v=')[1] || track.filePath.split('/').pop()}`
-    videoPlayer.style.display = 'none'; // We'll keep the video overlay for the logic but we need an iframe for YT
     
+    // Robust regex to get the ID from various YouTube URL formats
+    const match = track.filePath.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/)
+    const ytId = match ? match[1] : track.filePath.split('/').pop()
+
     // Replace video player with iframe for YT
     const container = document.getElementById('video-overlay')!
     container.innerHTML = `
-      <iframe id="yt-iframe" width="100%" height="100%" src="https://www.youtube.com/embed/${track.filePath.split('v=')[1] || track.filePath.split('/').pop()}?autoplay=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+      <iframe id="yt-iframe" width="100%" height="100%" src="https://www.youtube.com/embed/${ytId}?autoplay=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
       <button id="btn-close-video" class="btn-icon circle"><i data-lucide="x"></i></button>
     `
     // Re-bind close button
@@ -1093,6 +1097,25 @@ function playTrack(index: number): void {
     if (idx === index) item.classList.add('playing')
     else item.classList.remove('playing')
   })
+
+  // Show system notification
+  if ('Notification' in window) {
+    const showNotification = () => {
+      new Notification(displayName, {
+        body: `${track.artist || 'Unknown Artist'} • ${track.album || 'Unknown Album'}`,
+        icon: track.cover || undefined,
+        silent: true
+      })
+    }
+
+    if (Notification.permission === 'granted') {
+      showNotification()
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') showNotification()
+      })
+    }
+  }
 }
 
 function togglePlay(): void {

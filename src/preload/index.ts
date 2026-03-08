@@ -19,7 +19,8 @@ const api = {
   selectFiles: () => ipcRenderer.invoke('select-files'),
   getYTMeta: (url: string) => ipcRenderer.invoke('get-yt-metadata', url),
   processMeta: (filePath: string) => ipcRenderer.invoke('process-metadata', filePath),
-  upsertTrack: (track: any) => ipcRenderer.invoke('upsert-track', track)
+  upsertTrack: (track: any) => ipcRenderer.invoke('upsert-track', track),
+  importTheme: () => ipcRenderer.invoke('import-theme')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

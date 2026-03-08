@@ -1,9 +1,10 @@
 {
   "name": "blackbird-player",
+  "productName": "BlackBird",
   "version": "1.0.0",
-  "description": "A minimal Electron application with TypeScript",
+  "description": "BlackBird Media Player",
   "main": "./out/main/index.js",
-  "author": "example.com",
+  "author": "Jaccon",
   "homepage": "https://electron-vite.org",
   "scripts": {
     "format": "prettier --write .",

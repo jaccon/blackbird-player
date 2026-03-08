@@ -1,5 +1,6 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, ipcMain, dialog, net, Menu, MenuItemConstructorOptions } from 'electron'
+import { join, basename } from 'path'
+import * as fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { getMetadata, scanDirectory } from './metadata'
@@ -42,9 +43,12 @@ function createWindow(): void {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
+
+app.setName('BlackBird')
+
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('com.jaccon.blackbird')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -54,6 +58,105 @@ app.whenReady().then(() => {
   })
 
   // Register file:// protocol replacement for security/local access if needed
+  
+  // App Menu with Export Settings
+  const isMac = process.platform === 'darwin'
+  const template: MenuItemConstructorOptions[] = [
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' as const },
+        { type: 'separator' as const },
+        { role: 'services' as const },
+        { type: 'separator' as const },
+        { role: 'hide' as const },
+        { role: 'hideOthers' as const },
+        { role: 'unhide' as const },
+        { type: 'separator' as const },
+        { role: 'quit' as const }
+      ]
+    }] : []),
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Export Settings',
+          click: async () => {
+             const data = dbOps.getAllRaw()
+             const themes = dbOps.getThemes()
+             const exportObject = { ...data, themes }
+             
+             const { canceled, filePath } = await dialog.showSaveDialog({
+                title: 'Export Settings',
+                defaultPath: 'blackbird-settings.json',
+                filters: [{ name: 'JSON', extensions: ['json'] }]
+             })
+
+             if (!canceled && filePath) {
+                fs.writeFileSync(filePath, JSON.stringify(exportObject, null, 2))
+                dialog.showMessageBox({
+                  type: 'info',
+                  title: 'Export Successful',
+                  message: 'Settings exported successfully to ' + filePath
+                })
+             }
+          }
+        },
+        {
+          label: 'Import Settings',
+          click: async () => {
+             const { canceled, filePaths } = await dialog.showOpenDialog({
+                title: 'Import Settings',
+                properties: ['openFile'],
+                filters: [{ name: 'JSON', extensions: ['json'] }]
+             })
+
+             if (!canceled && filePaths.length > 0) {
+                try {
+                   const fileContent = fs.readFileSync(filePaths[0], 'utf-8')
+                   const importObject = JSON.parse(fileContent)
+                   
+                   // Import Themes
+                   if (importObject.themes && Array.isArray(importObject.themes)) {
+                      const themeDestDir = join(app.getAppPath(), 'resources', 'themes')
+                      if (!fs.existsSync(themeDestDir)) {
+                         fs.mkdirSync(themeDestDir, { recursive: true })
+                      }
+                      for (const theme of importObject.themes) {
+                         const safeFileName = `${theme.name}.json`.toLowerCase().replace(/\s+/g, '-')
+                         fs.writeFileSync(join(themeDestDir, safeFileName), JSON.stringify(theme, null, 2))
+                      }
+                   }
+
+                   // Import DB
+                   const result = dbOps.importRaw(importObject)
+                   if (result.success) {
+                      await dialog.showMessageBox({
+                         type: 'info',
+                         title: 'Import Successful',
+                         message: 'Settings imported successfully. The application will now restart to apply changes.'
+                      })
+                      app.relaunch()
+                      app.exit(0)
+                   } else {
+                      throw new Error(result.error)
+                   }
+                } catch (e: any) {
+                   dialog.showErrorBox('Import Failed', `Failed to import settings: ${e.message}`)
+                }
+             }
+          }
+        },
+        isMac ? { role: 'close' as const } : { role: 'quit' as const }
+      ]
+    },
+    { role: 'editMenu' as const },
+    { role: 'viewMenu' as const },
+    { role: 'windowMenu' as const }
+  ]
+
+  const menu = Menu.buildFromTemplate(template)
+  Menu.setApplicationMenu(menu)
   // Already have webSecurity: false but good to have dedicated handlers
   
   // IPC handlers
@@ -67,6 +170,34 @@ app.whenReady().then(() => {
     return canceled ? null : filePaths
   })
 
+  ipcMain.handle('import-theme', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [
+        { name: 'JSON Themes', extensions: ['json'] }
+      ]
+    })
+    
+    if (canceled || filePaths.length === 0) return { success: false }
+
+    try {
+      const themePath = filePaths[0]
+      const themeDestDir = join(app.getAppPath(), 'resources', 'themes')
+      
+      if (!fs.existsSync(themeDestDir)) {
+        fs.mkdirSync(themeDestDir, { recursive: true })
+      }
+
+      const fileName = basename(themePath)
+      const destPath = join(themeDestDir, fileName)
+
+      fs.copyFileSync(themePath, destPath)
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: (e as Error).message }
+    }
+  })
+
   ipcMain.handle('get-yt-metadata', async (_, url: string) => {
     try {
       // Basic extraction of ID for thumbnail
@@ -74,8 +205,40 @@ app.whenReady().then(() => {
       const id = match ? match[1] : null;
       if (!id) throw new Error('Invalid YouTube URL');
 
+      let title = 'YouTube Video'
+      let author = 'YouTube'
+      try {
+        const oUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`
+        const data = await new Promise<any>((resolve, reject) => {
+          const request = net.request(oUrl)
+          request.on('response', (response) => {
+            let body = ''
+            response.on('data', (chunk) => { body += chunk })
+            response.on('end', () => {
+              if (response.statusCode === 200) {
+                try {
+                  resolve(JSON.parse(body))
+                } catch (e) {
+                  reject(e)
+                }
+              } else {
+                reject(new Error(`Status ${response.statusCode}`))
+              }
+            })
+          })
+          request.on('error', (err) => reject(err))
+          request.end()
+        })
+        if (data.title) title = data.title
+        if (data.author_name) author = data.author_name
+      } catch (e) {
+        console.warn('Failed to fetch YouTube oEmbed data', e)
+      }
+
       return {
         id,
+        title,
+        author,
         thumbnail: `https://img.youtube.com/vi/${id}/maxresdefault.jpg`,
         url
       }

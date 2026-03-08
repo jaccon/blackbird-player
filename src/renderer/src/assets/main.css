@@ -172,6 +172,7 @@ body {
 .sidebar-footer {
     padding: 24px 14px;
     display: flex;
+    flex-direction: column;
     justify-content: center;
 }
 
@@ -244,7 +245,7 @@ body {
 
 .search-bar input {
     width: 100%;
-    background: var(--glass);
+    background: var(--bg-dark);
     border: 1px solid var(--border);
     padding: 10px 20px;
     border-radius: 20px;
@@ -274,6 +275,21 @@ body {
     justify-content: center;
     height: 60vh;
     text-align: center;
+}
+
+.welcome-screen h2 {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: var(--text-main);
+}
+
+.welcome-screen p {
+    font-size: 18px;
+    color: var(--text-muted);
+    margin-bottom: 32px;
+    max-width: 400px;
+    line-height: 1.5;
 }
 
 /* Player Bar */
@@ -679,7 +695,7 @@ body {
 
 .track-item {
     display: grid;
-    grid-template-columns: 40px 2fr 1fr 80px;
+    grid-template-columns: 40px 2fr 1.5fr 100px 120px;
     padding: 12px 16px;
     border-radius: var(--radius-md);
     align-items: center;
@@ -690,6 +706,7 @@ body {
 .track-item:hover {
     background: var(--glass);
 }
+
 
 .track-item.playing {
     background: var(--accent-glow);

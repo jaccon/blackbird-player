@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <title>BlackBird Player</title>
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self' data:; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; media-src 'self' file:; font-src https://fonts.gstatic.com;" />
+    content="default-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://img.youtube.com https://i.ytimg.com; media-src 'self' file: data: blob:; frame-src 'self' https://www.youtube.com; font-src https://fonts.gstatic.com;" />
   <link href="./src/assets/main.css" type="text/css" rel="stylesheet" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -48,8 +48,8 @@
       </nav>
 
       <div class="sidebar-footer">
-        <button class="btn-primary" id="btn-add-folder">Add Music Folder</button>
       </div>
+
     </aside>
 
     <main class="main-content">
@@ -186,6 +186,15 @@
           <label for="edit-album">Album</label>
           <input type="text" id="edit-album">
         </div>
+        <div class="input-group" style="margin-top:16px;">
+          <label for="edit-kind">Kind</label>
+          <input type="text" id="edit-kind">
+        </div>
+        <div class="input-group" style="margin-top:16px;">
+          <label for="edit-description">Description</label>
+          <textarea id="edit-description" rows="3"
+            style="width: 100%; background: var(--glass); border: 1px solid var(--border); padding: 12px 16px; border-radius: var(--radius-md); color: var(--text-main); font-family: inherit; font-size: 14px; outline: none;"></textarea>
+        </div>
       </div>
       <div class="modal-spacer"></div>
       <div class="modal-footer">
@@ -205,16 +214,6 @@
           <label for="yt-url">YouTube URL</label>
           <input type="text" id="yt-url" placeholder="https://www.youtube.com/watch?v=...">
         </div>
-        <div class="input-group" style="margin-top:16px;">
-          <label for="yt-title">Title</label>
-          <input type="text" id="yt-title" placeholder="Video Title">
-        </div>
-        <div class="input-group" style="margin-top:16px;">
-          <label for="yt-description">Description</label>
-          <textarea id="yt-description"
-            style="width: 100%; background: var(--glass); border: 1px solid var(--border); padding: 12px 16px; border-radius: var(--radius-md); color: var(--text-main); outline: none; transition: all 0.2s ease; resize: none; height: 80px;"
-            placeholder="Video Description"></textarea>
-        </div>
       </div>
       <div class="modal-footer">
         <button class="btn-secondary btn-cancel-modal">Cancel</button>
@@ -222,24 +221,7 @@
       </div>
     </div>
 
-    <!-- Playlist Selection Modal -->
-    <div id="select-playlist-modal" class="modal-content hidden">
-      <div class="modal-header">
-        <h2 id="select-playlist-title">Import to Playlist</h2>
-        <button class="btn-icon circle-small btn-close-modal"><i data-lucide="x"></i></button>
-      </div>
-      <div class="modal-body">
-        <p style="margin-bottom: 16px; font-size: 14px; color: var(--text-muted);">Select a playlist to add your media
-          to.</p>
-        <div id="import-playlist-options"
-          style="display: flex; flex-direction: column; gap: 8px; max-height: 250px; overflow-y: auto;">
-          <!-- Rendered by JS -->
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-secondary btn-cancel-modal">Cancel</button>
-      </div>
-    </div>
+
   </div>
 
   <script src="https://unpkg.com/lucide@latest"></script>

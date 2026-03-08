@@ -21,7 +21,8 @@ db.exec(`
     format TEXT,
     cover TEXT,
     duration REAL,
-    is_favorite INTEGER DEFAULT 0
+    is_favorite INTEGER DEFAULT 0,
+    description TEXT
   );
 
   CREATE TABLE IF NOT EXISTS playlists (
@@ -54,6 +55,12 @@ try {
     db.exec('ALTER TABLE tracks ADD COLUMN is_favorite INTEGER DEFAULT 0');
     console.log('Migrated DB: added is_favorite column');
   }
+
+  const hasDescription = tableInfo.some(col => col.name === 'description');
+  if (!hasDescription) {
+    db.exec('ALTER TABLE tracks ADD COLUMN description TEXT');
+    console.log('Migrated DB: added description column');
+  }
 } catch (e) {
   console.error('Migration error:', e);
 }
@@ -76,6 +83,7 @@ export interface DBTrack {
   cover?: string;
   duration?: number;
   is_favorite?: number;
+  description?: string;
 }
 
 export interface Playlist {
@@ -87,21 +95,22 @@ export const dbOps = {
   // Tracks
   upsertTrack: (track: DBTrack) => {
     const stmt = db.prepare(`
-      INSERT INTO tracks (uuid, title, artist, album, file_path, format, cover, duration, is_favorite)
-      VALUES (@uuid, @title, @artist, @album, @file_path, @format, @cover, @duration, @is_favorite)
+      INSERT INTO tracks (uuid, title, artist, album, file_path, format, cover, duration, is_favorite, description)
+      VALUES (@uuid, @title, @artist, @album, @file_path, @format, @cover, @duration, @is_favorite, @description)
       ON CONFLICT(file_path) DO UPDATE SET
         title=excluded.title,
         artist=excluded.artist,
         album=excluded.album,
         cover=excluded.cover,
         duration=excluded.duration,
-        is_favorite=excluded.is_favorite
+        is_favorite=excluded.is_favorite,
+        description=excluded.description
     `);
     return stmt.run(track);
   },
 
   getTrackByPath: (filePath: string) => {
-    return db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite FROM tracks WHERE file_path = ?').get(filePath) as any;
+    return db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks WHERE file_path = ?').get(filePath) as any;
   },
 
   // Playlists
@@ -138,7 +147,7 @@ export const dbOps = {
 
   getPlaylistTracks: (playlistId: string) => {
     return db.prepare(`
-      SELECT t.uuid, t.title, t.artist, t.album, t.file_path as filePath, t.format, t.cover, t.duration, t.is_favorite
+      SELECT t.uuid, t.title, t.artist, t.album, t.file_path as filePath, t.format, t.cover, t.duration, t.is_favorite, t.description
       FROM tracks t
       JOIN playlist_tracks pt ON t.uuid = pt.track_uuid
       WHERE pt.playlist_id = ?
@@ -151,11 +160,11 @@ export const dbOps = {
   },
 
   getAllTracks: () => {
-    return db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite FROM tracks').all() as any[];
+    return db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks').all() as any[];
   },
 
   getFavoriteTracks: () => {
-    return db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite FROM tracks WHERE is_favorite = 1').all() as any[];
+    return db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks WHERE is_favorite = 1').all() as any[];
   },
 
   getThemes: () => {
@@ -174,5 +183,48 @@ export const dbOps = {
     const placeholders = uuids.map(() => '?').join(',');
     db.prepare(`DELETE FROM playlist_tracks WHERE track_uuid IN (${placeholders})`).run(...uuids);
     return db.prepare(`DELETE FROM tracks WHERE uuid IN (${placeholders})`).run(...uuids);
+  },
+
+  getAllRaw: () => {
+    return {
+      tracks: db.prepare('SELECT * FROM tracks').all(),
+      playlists: db.prepare('SELECT * FROM playlists').all(),
+      playlist_tracks: db.prepare('SELECT * FROM playlist_tracks').all()
+    };
+  },
+
+  importRaw: (data: any) => {
+    const transaction = db.transaction((importData) => {
+      // Clear existing
+      db.prepare('DELETE FROM playlist_tracks').run();
+      db.prepare('DELETE FROM playlists').run();
+      db.prepare('DELETE FROM tracks').run();
+
+      // Insert tracks
+      if (importData.tracks && importData.tracks.length) {
+        const trackStmt = db.prepare(`INSERT INTO tracks (uuid, title, artist, album, file_path, format, cover, duration, is_favorite, description) VALUES (@uuid, @title, @artist, @album, @file_path, @format, @cover, @duration, @is_favorite, @description)`);
+        for (const t of importData.tracks) trackStmt.run(t);
+      }
+
+      // Insert playlists
+      if (importData.playlists && importData.playlists.length) {
+        const plStmt = db.prepare(`INSERT INTO playlists (id, name, created_at) VALUES (@id, @name, @created_at)`);
+        for (const p of importData.playlists) plStmt.run(p);
+      }
+
+      // Insert playlist_tracks
+      if (importData.playlist_tracks && importData.playlist_tracks.length) {
+        const ptStmt = db.prepare(`INSERT INTO playlist_tracks (id, playlist_id, track_uuid) VALUES (@id, @playlist_id, @track_uuid)`);
+        for (const pt of importData.playlist_tracks) ptStmt.run(pt);
+      }
+    });
+
+    try {
+      transaction(data);
+      return { success: true };
+    } catch (e: any) {
+      console.error('Import failed', e);
+      return { success: false, error: e.message };
+    }
   }
 };
