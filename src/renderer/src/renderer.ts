@@ -186,7 +186,7 @@ async function init(): Promise<void> {
     const footer = document.querySelector('.sidebar-footer')
     if (footer) {
       footer.innerHTML = `
-        <div class="theme-management-container" style="display:flex; flex-direction:column; gap:8px; width:100%; padding:12px; background:rgba(0,0,0,0.15); border:1px solid var(--border); border-radius:var(--radius-md);">
+        <div class="theme-management-container" style="display:flex; flex-direction:column; gap:8px; width:100%; padding:12px; background:rgba(0,0,0,0.15); border:1px solid var(--border); border-radius:var(--radius-md); margin-bottom: 24px;">
           <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--text-muted); font-weight:600;">Theme Options</div>
           <div style="display:flex; gap:8px; width:100%;">
             <select id="theme-selector" style="flex:1; width:auto; background:var(--glass); color:var(--text-main); border:1px solid var(--border); padding:8px; border-radius:var(--radius-md); font-family:inherit; outline:none; cursor:pointer;">
@@ -197,9 +197,11 @@ async function init(): Promise<void> {
             </button>
           </div>
         </div>
-        <button class="btn-secondary" id="btn-update-player" style="margin-top: 12px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
-          Update Player
-        </button>
+        <div style="border-top: 1px solid var(--border); padding-top: 16px; width: 100%;">
+          <button class="btn-secondary" id="btn-update-player" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--bg-card); color: var(--text-main);">
+            <i data-lucide="github"></i> Check for Updates
+          </button>
+        </div>
       `
 
       themeSelector = document.getElementById('theme-selector') as HTMLSelectElement
@@ -392,6 +394,26 @@ function attachListeners(): void {
     setActiveNav('btn-favorites')
     const favs = await (window as any).api.getFavorites()
     renderTrackList(favs, 'My Favorites')
+  })
+
+  document.getElementById('btn-statistics')?.addEventListener('click', async () => {
+    selectedTrackUuids.clear()
+    setActiveNav('btn-statistics')
+    
+    // UI Loader State
+    contentView.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); gap: 16px;">
+        <i data-lucide="loader" class="spinner" style="width: 32px; height: 32px; animation: spin 1s linear infinite;"></i>
+        <p>Crunching your listening data...</p>
+      </div>
+      <style>
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+      </style>
+    `
+    if ((window as any).lucide) (window as any).lucide.createIcons()
+
+    const stats = await (window as any).api.getStatistics()
+    renderStatistics(stats)
   })
 
   btnImportMedia.addEventListener('click', handleAddFolder)
@@ -1023,12 +1045,118 @@ function renderArtistGrid(): void {
   })
 }
 
+function renderStatistics(stats: any): void {
+  contentView.innerHTML = `
+    <div class="track-list-view" style="padding: 32px;">
+      <div class="view-header">
+        <h2 class="view-title">Your Statistics</h2>
+        <p class="view-subtitle">Insights into your listening habits</p>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; margin-bottom: 32px;">
+        <!-- Listening Time -->
+        <div style="background: var(--bg-card); padding: 24px; border-radius: var(--radius-lg); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
+          <h3 style="color: var(--text-muted); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Listening Time (Last 30 Days)</h3>
+          <div style="font-size: 36px; font-weight: 700; color: var(--accent);">${stats.hoursListenedLastMonth.toFixed(1)} <span style="font-size: 13px; font-weight: 400;">hrs</span></div>
+          <div style="color: var(--text-muted); font-size: 13px;">Music played locally</div>
+        </div>
+
+        <!-- Library Size -->
+        <div style="background: var(--bg-card); padding: 24px; border-radius: var(--radius-lg); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
+          <h3 style="color: var(--text-muted); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Library Size</h3>
+          <div style="font-size: 36px; font-weight: 700; color: var(--accent);">${stats.totalTracks || 0} <span style="font-size: 13px; font-weight: 400;">tracks</span></div>
+          <div style="color: var(--text-muted); font-size: 13px;">Across ${stats.totalAlbums || 0} unique albums</div>
+        </div>
+
+        <!-- Favorite Format -->
+        <div style="background: var(--bg-card); padding: 24px; border-radius: var(--radius-lg); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
+          <h3 style="color: var(--text-muted); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Favorite Audio Format</h3>
+          <div style="font-size: 36px; font-weight: 700; color: var(--accent); text-transform: uppercase;">${stats.topFormat}</div>
+          <div style="color: var(--text-muted); font-size: 13px;">Most frequently played file type</div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+        <!-- Top Tracks -->
+        <div style="background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border); overflow: hidden;">
+          <div style="padding: 24px; border-bottom: 1px solid var(--border);">
+            <h3 style="font-size: 18px; font-weight: 600;">Top 10 Most Listened Tracks</h3>
+          </div>
+          <div class="track-list" style="padding: 12px;">
+            ${stats.topTracks.length > 0 ? stats.topTracks.map((track: any, index: number) => `
+              <div class="track-item" style="cursor: default;" data-uuid="${track.uuid}">
+                <div class="track-num">${index + 1}</div>
+                <div class="track-name-cell">
+                  <div class="track-name">${track.title || 'Unknown Title'}</div>
+                  <div class="track-list-artist">${track.artist || 'Unknown Artist'}</div>
+                </div>
+                <div class="track-album-cell" style="flex: 1; align-items: center; justify-content: flex-end; padding-right: 24px;">
+                  <span class="tag small" style="background: var(--glass); color: var(--accent);">${track.playCount} Plays</span>
+                </div>
+              </div>
+            `).join('') : '<div style="padding: 24px; color: var(--text-muted);">No play history recorded yet.</div>'}
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 24px;">
+          <!-- Favorite Types Breakdown -->
+          <div style="background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border); overflow: hidden; height: fit-content;">
+            <div style="padding: 24px; border-bottom: 1px solid var(--border);">
+              <h3 style="font-size: 18px; font-weight: 600;">Favorited Formats</h3>
+            </div>
+            <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+              ${stats.favoriteTypes.length > 0 ? stats.favoriteTypes.map((type: any) => `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="text-transform: uppercase; font-weight: 600; color: var(--text-main);">${type.format || 'Unknown'}</span>
+                  <span style="color: var(--text-muted);">${type.count} tracks</span>
+                </div>
+              `).join('') : '<div style="color: var(--text-muted);">No favorited tracks yet.</div>'}
+            </div>
+          </div>
+          
+          <!-- Most Active Hours -->
+          <div style="background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border); overflow: hidden; height: fit-content;">
+            <div style="padding: 24px; border-bottom: 1px solid var(--border);">
+              <h3 style="font-size: 18px; font-weight: 600;">Most Active Hours</h3>
+            </div>
+            <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+              ${(() => {
+                if (!stats.activeHours || stats.activeHours.length === 0) return '<div style="color: var(--text-muted);">No activity recorded yet.</div>';
+                const maxCount = Math.max(...stats.activeHours.map((h: any) => h.count));
+                return stats.activeHours.map((hourObj: any) => {
+                  const percentage = (hourObj.count / maxCount) * 100;
+                  return `
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
+                        <span style="font-weight: 600; color: var(--text-main);">${hourObj.hour}:00 - ${parseInt(hourObj.hour) + 1}:00</span>
+                        <span style="color: var(--text-muted);">${hourObj.count} plays</span>
+                      </div>
+                      <div style="width: 100%; height: 6px; background: var(--glass); border-radius: 4px; overflow: hidden;">
+                        <div style="width: ${percentage}%; height: 100%; background: var(--accent); border-radius: 4px;"></div>
+                      </div>
+                    </div>
+                  `;
+                }).join('');
+              })()}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `
+}
+
 function playTrack(index: number): void {
   if (index < 0 || index >= currentPlaylist.length) return
   
   currentTrackIndex = index
   const track = currentPlaylist[index]
   const fileUrl = `file://${track.filePath}`
+
+  // Record playback to statistics
+  if ((window as any).api.recordPlay) {
+    (window as any).api.recordPlay(track.uuid)
+  }
 
   if (track.format === 'youtube') {
     audio.pause()

@@ -1,0 +1,17 @@
+{
+  "name": "White Great",
+  "variables": {
+    "--bg-dark": "#f4f4f5",
+    "--bg-card": "#ffffff",
+    "--sidebar-bg": "#fcfcfc",
+    "--text-main": "#18181b",
+    "--text-muted": "#71717a",
+    "--accent": "#000000",
+    "--accent-glow": "rgba(0, 0, 0, 0.1)",
+    "--border": "#e4e4e7",
+    "--glass": "rgba(0, 0, 0, 0.05)",
+    "--radius-lg": "24px",
+    "--radius-md": "12px",
+    "--font-family": "'Inter', -apple-system, sans-serif"
+  }
+}

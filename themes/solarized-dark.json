@@ -1,0 +1,17 @@
+{
+  "name": "Solarized Dark",
+  "variables": {
+    "--bg-dark": "#002b36",
+    "--bg-card": "#073642",
+    "--sidebar-bg": "#002b36",
+    "--text-main": "#839496",
+    "--text-muted": "#586e75",
+    "--accent": "#2aa198",
+    "--accent-glow": "rgba(42, 161, 152, 0.4)",
+    "--border": "#073642",
+    "--glass": "rgba(42, 161, 152, 0.05)",
+    "--radius-lg": "10px",
+    "--radius-md": "5px",
+    "--font-family": "'Inter', -apple-system, sans-serif"
+  }
+}

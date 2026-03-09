@@ -104,3 +104,11 @@ While BlackBird is designed around dark mode, light themes are possible if prope
 
 ## How to Import
 Once your JSON file is ready, open BlackBird and click the **Import Theme (Download Icon)** in the bottom left section of the sidebar, right below the Add Folder button. Select your JSON file and it will be instantly added to your collection!
+
+## Where Themes are Stored
+When you import a theme, BlackBird safely copies and stores the `.json` file in your operating system's native application data folder (`userData`), ensuring themes persist across updates and do not require administrative privileges to modify. 
+
+Depending on your Operating System, your imported themes are saved at the following locations:
+- **macOS**: `~/Library/Application Support/BlackBird/themes/`
+- **Windows**: `C:\Users\<YourUser>\AppData\Roaming\BlackBird\themes\`
+- **Linux**: `~/.config/BlackBird/themes/`

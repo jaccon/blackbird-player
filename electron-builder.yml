@@ -13,6 +13,8 @@ asarUnpack:
   - resources/**
 win:
   executableName: BlackBird
+  publisherName: "Jaccon"
+  verifyUpdateCodeSignature: false
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
@@ -26,12 +28,20 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+    NSCameraUsageDescription: Application requests access to the device's camera.
+    NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+    NSDesktopFolderUsageDescription: Application requests access to the user's Desktop folder.
+    NSRemovableVolumesUsageDescription: Application requests access to external drives and volumes.
   notarize: false
+pkg:
+  background:
+    file: build/background.png
+    alignment: center
+  installLocation: /Applications
 dmg:
+  background: build/background.png
   artifactName: ${name}-${version}.${ext}
 linux:
   target:

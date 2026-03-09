@@ -1,0 +1,17 @@
+{
+  "name": "Drakula",
+  "variables": {
+    "--bg-dark": "#282a36",
+    "--bg-card": "#44475a",
+    "--sidebar-bg": "#282a36",
+    "--text-main": "#f8f8f2",
+    "--text-muted": "#6272a4",
+    "--accent": "#bd93f9",
+    "--accent-glow": "rgba(189, 147, 249, 0.4)",
+    "--border": "#44475a",
+    "--glass": "rgba(248, 248, 242, 0.05)",
+    "--radius-lg": "16px",
+    "--radius-md": "8px",
+    "--font-family": "system-ui, sans-serif"
+  }
+}

@@ -38,6 +38,14 @@ db.exec(`
     FOREIGN KEY(playlist_id) REFERENCES playlists(id),
     FOREIGN KEY(track_uuid) REFERENCES tracks(uuid)
   );
+
+  CREATE TABLE IF NOT EXISTS play_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    track_uuid TEXT,
+    duration_played REAL,
+    played_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(track_uuid) REFERENCES tracks(uuid) ON DELETE CASCADE
+  );
 `);
 
 // Support migration for existing DBs
@@ -71,6 +79,21 @@ try {
 } catch (e) {
   console.log('is_favorite column missing, adding it now...');
   db.exec('ALTER TABLE tracks ADD COLUMN is_favorite INTEGER DEFAULT 0');
+}
+
+try {
+  db.prepare('SELECT id FROM play_history LIMIT 0').all();
+} catch (e) {
+  console.log('play_history table missing, creating it now...');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS play_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      track_uuid TEXT,
+      duration_played REAL,
+      played_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(track_uuid) REFERENCES tracks(uuid) ON DELETE CASCADE
+    );
+  `);
 }
 
 export interface DBTrack {
@@ -111,6 +134,69 @@ export const dbOps = {
 
   getTrackByPath: (filePath: string) => {
     return db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks WHERE file_path = ?').get(filePath) as any;
+  },
+
+  // Statistics
+  recordPlay: (trackUuid: string) => {
+    const track = db.prepare('SELECT duration FROM tracks WHERE uuid = ?').get(trackUuid) as DBTrack;
+    const duration = track ? (track.duration || 0) : 0;
+    return db.prepare('INSERT INTO play_history (track_uuid, duration_played) VALUES (?, ?)').run(trackUuid, duration);
+  },
+
+  getStatistics: () => {
+    const topTracks = db.prepare(`
+      SELECT t.uuid, t.title, t.artist, t.cover, t.format, COUNT(p.id) as playCount 
+      FROM play_history p 
+      JOIN tracks t ON p.track_uuid = t.uuid 
+      GROUP BY p.track_uuid 
+      ORDER BY playCount DESC 
+      LIMIT 10
+    `).all();
+
+    const topFormatRow = db.prepare(`
+      SELECT t.format, COUNT(p.id) as playCount 
+      FROM play_history p 
+      JOIN tracks t ON p.track_uuid = t.uuid 
+      WHERE t.format IS NOT NULL AND t.format != ''
+      GROUP BY t.format 
+      ORDER BY playCount DESC 
+      LIMIT 1
+    `).get() as any;
+
+    const favoriteTypes = db.prepare(`
+      SELECT format, COUNT(*) as count 
+      FROM tracks 
+      WHERE is_favorite = 1 AND format IS NOT NULL AND format != ''
+      GROUP BY format 
+      ORDER BY count DESC
+    `).all() as any[];
+
+    const hoursRow = db.prepare(`
+      SELECT SUM(duration_played) as totalSeconds 
+      FROM play_history 
+      WHERE played_at >= datetime('now', '-1 month')
+    `).get() as any;
+
+    const totalTracksRow = db.prepare(`SELECT COUNT(*) as count FROM tracks`).get() as any;
+    const totalAlbumsRow = db.prepare(`SELECT COUNT(DISTINCT album) as count FROM tracks WHERE album IS NOT NULL AND album != '' AND album != 'Unknown Album'`).get() as any;
+
+    const activeHours = db.prepare(`
+      SELECT strftime('%H', datetime(played_at, 'localtime')) as hour, COUNT(*) as count 
+      FROM play_history 
+      GROUP BY hour 
+      ORDER BY count DESC 
+      LIMIT 3
+    `).all() as any[];
+
+    return {
+      topTracks: topTracks,
+      topFormat: topFormatRow?.format || 'None',
+      favoriteTypes: favoriteTypes,
+      hoursListenedLastMonth: hoursRow && hoursRow.totalSeconds ? (hoursRow.totalSeconds / 3600) : 0,
+      totalTracks: totalTracksRow?.count || 0,
+      totalAlbums: totalAlbumsRow?.count || 0,
+      activeHours: activeHours
+    };
   },
 
   // Playlists
@@ -168,15 +254,29 @@ export const dbOps = {
   },
 
   getThemes: () => {
-    const themeDir = path.join(app.getAppPath(), 'resources', 'themes');
-    if (!fs.existsSync(themeDir)) return [];
+    const builtinThemeDir = path.join(app.getAppPath(), 'resources', 'themes');
+    const userThemeDir = path.join(app.getPath('userData'), 'themes');
+    const themes = new Map();
+
+    const loadFromDir = (dir: string) => {
+      if (!fs.existsSync(dir)) return;
+      fs.readdirSync(dir)
+        .filter(f => f.endsWith('.json'))
+        .forEach(f => {
+          try {
+            const content = fs.readFileSync(path.join(dir, f), 'utf-8');
+            const parsed = JSON.parse(content);
+            if (parsed.name) themes.set(parsed.name, parsed);
+          } catch (e) {
+            console.error(`Error parsing theme ${f}:`, e);
+          }
+        });
+    };
+
+    loadFromDir(builtinThemeDir);
+    loadFromDir(userThemeDir);
     
-    return fs.readdirSync(themeDir)
-      .filter(f => f.endsWith('.json'))
-      .map(f => {
-        const content = fs.readFileSync(path.join(themeDir, f), 'utf-8');
-        return JSON.parse(content);
-      });
+    return Array.from(themes.values());
   },
 
   deleteTracks: (uuids: string[]) => {

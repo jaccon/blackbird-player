@@ -20,7 +20,9 @@ const api = {
   getYTMeta: (url: string) => ipcRenderer.invoke('get-yt-metadata', url),
   processMeta: (filePath: string) => ipcRenderer.invoke('process-metadata', filePath),
   upsertTrack: (track: any) => ipcRenderer.invoke('upsert-track', track),
-  importTheme: () => ipcRenderer.invoke('import-theme')
+  importTheme: () => ipcRenderer.invoke('import-theme'),
+  recordPlay: (trackUuid: string) => ipcRenderer.invoke('record-play', trackUuid),
+  getStatistics: () => ipcRenderer.invoke('get-statistics')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

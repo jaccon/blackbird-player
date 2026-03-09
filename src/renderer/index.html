@@ -31,6 +31,7 @@
             <li id="btn-artists"><i data-lucide="mic"></i> Artists</li>
             <li id="btn-all-videos"><i data-lucide="video"></i> All Videos</li>
             <li id="btn-favorites"><i data-lucide="heart"></i> My Favorites</li>
+            <li id="btn-statistics"><i data-lucide="bar-chart-2"></i> Statistics</li>
           </ul>
         </div>
 
@@ -71,11 +72,19 @@
       </header>
 
       <div class="content-view" id="content-view">
-        <div class="welcome-screen">
-          <h2>Welcome to BlackBird</h2>
-          <p>Select a folder to start your music journey.</p>
-          <button class="btn-primary large" id="btn-add-folder-hero">Pick a Folder</button>
+        <div
+          style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); gap: 16px;">
+          <i data-lucide="loader" class="spinner"
+            style="width: 32px; height: 32px; animation: spin 1s linear infinite;"></i>
+          <p>Loading your library...</p>
         </div>
+        <style>
+          @keyframes spin {
+            100% {
+              transform: rotate(360deg);
+            }
+          }
+        </style>
       </div>
 
       <div id="video-overlay" class="video-overlay hidden">

@@ -1,0 +1,17 @@
+{
+  "name": "Blackout",
+  "variables": {
+    "--bg-dark": "#000000",
+    "--bg-card": "#111111",
+    "--sidebar-bg": "#000000",
+    "--text-main": "#ffffff",
+    "--text-muted": "#888888",
+    "--accent": "#ffffff",
+    "--accent-glow": "rgba(255, 255, 255, 0.4)",
+    "--border": "#222222",
+    "--glass": "rgba(255, 255, 255, 0.05)",
+    "--radius-lg": "12px",
+    "--radius-md": "6px",
+    "--font-family": "system-ui, sans-serif"
+  }
+}

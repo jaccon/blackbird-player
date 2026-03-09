@@ -1,0 +1,17 @@
+{
+  "name": "Nord",
+  "variables": {
+    "--bg-dark": "#2e3440",
+    "--bg-card": "#3b4252",
+    "--sidebar-bg": "#2e3440",
+    "--text-main": "#eceff4",
+    "--text-muted": "#d8dee9",
+    "--accent": "#88c0d0",
+    "--accent-glow": "rgba(136, 192, 208, 0.4)",
+    "--border": "#434c5e",
+    "--glass": "rgba(136, 192, 208, 0.05)",
+    "--radius-lg": "8px",
+    "--radius-md": "4px",
+    "--font-family": "system-ui, sans-serif"
+  }
+}

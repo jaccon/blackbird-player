@@ -1,0 +1,17 @@
+{
+  "name": "Synthwave",
+  "variables": {
+    "--bg-dark": "#2b213a",
+    "--bg-card": "#241b2f",
+    "--sidebar-bg": "#262335",
+    "--text-main": "#f8f8f2",
+    "--text-muted": "#8d85a1",
+    "--accent": "#ff7edb",
+    "--accent-glow": "rgba(255, 126, 219, 0.4)",
+    "--border": "#362e49",
+    "--glass": "rgba(255, 126, 219, 0.05)",
+    "--radius-lg": "12px",
+    "--radius-md": "6px",
+    "--font-family": "'Inter', sans-serif"
+  }
+}

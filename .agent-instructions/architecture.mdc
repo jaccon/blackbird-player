@@ -1,0 +1,23 @@
+---
+description: Software Engineering and Architecture Patterns adopted in BlackBird to guide AI in Electron architectural decision-making.
+globs: **/*.*
+---
+
+# Software Engineering and Architecture - BlackBird Media Player
+
+1. **Main Process Layers (Electron)**
+   - **Main Process**: The backend process. Manages heavy system processes, interaction with local native files (audio buffers, heavy reads), communication with the database via SQLite. Avoid placing highly costly synchronous processing without fractioning in Main.
+   - **Preload Process**: Pure security and "DTO Mapping" layer. Do not expose raw APIs (e.g., `fs`, `path`) from Node.js, only expose mapped `actions` through `contextBridge`.
+   - **Renderer Process**: Strictly UI and client-side, consuming Vanilla classes or DOM manipulators without seeing the original local OS structure. Uses IPC requests sent to Main to retrieve machine status, library, and metadata.
+
+2. **Secure IPC Management (Inter-Process Communication)**:
+   - Create endpoint routes using semantic channels in Preload.
+   - `$ ipcMain.handle`: Preferred for data-driven operations whose Frontend actively waits for completion (Promises).
+   - `$ ipcMain.on` / `$ ipcRenderer.send`: Used primarily to lock progress emissions or fire-and-forget events.
+
+3. **Database Injection**:
+   - The `better-sqlite3` dependency is the synchronous pillar.
+   - Use a strict **Repository** or **DAO** Pattern: Your executions in SQLite (.prepare) should not be scattered throughout the Main logical scripts. Create Repository classes and consume them in IPC Handlers by abstraction.
+
+4. **Reader Performance**:
+   - The use of the `music-metadata` lib requires care regarding computational load on the UI. Keep Parsings in the back-end layer with chunking (divided arrays) so that large lists do not hang and break active requests. The Front-end can use Lazy Loading on visualization components created in Vanilla UI.

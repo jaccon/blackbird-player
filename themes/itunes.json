@@ -1,0 +1,17 @@
+{
+  "name": "iTunes Classic",
+  "variables": {
+    "--bg-dark": "#ececec",
+    "--bg-card": "#ffffff",
+    "--sidebar-bg": "#dfdfdf",
+    "--text-main": "#000000",
+    "--text-muted": "#666666",
+    "--accent": "#007aff",
+    "--accent-glow": "rgba(0, 122, 255, 0.4)",
+    "--border": "#cccccc",
+    "--glass": "rgba(0, 0, 0, 0.05)",
+    "--radius-lg": "8px",
+    "--radius-md": "4px",
+    "--font-family": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+  }
+}

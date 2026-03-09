@@ -1,0 +1,17 @@
+{
+  "name": "Forest",
+  "variables": {
+    "--bg-dark": "#1b262c",
+    "--bg-card": "#0f4c75",
+    "--sidebar-bg": "#132c33",
+    "--text-main": "#ffffff",
+    "--text-muted": "#9badb7",
+    "--accent": "#9ed450",
+    "--accent-glow": "rgba(158, 212, 80, 0.4)",
+    "--border": "#1a5b82",
+    "--glass": "rgba(158, 212, 80, 0.05)",
+    "--radius-lg": "16px",
+    "--radius-md": "8px",
+    "--font-family": "system-ui, sans-serif"
+  }
+}

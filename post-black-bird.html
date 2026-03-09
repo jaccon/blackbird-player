@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlackBird Media Player - Lançamento</title>
+    <style>
+        :root {
+            --bg-color: #0f1115;
+            --text-color: #e0e6ed;
+            --accent-color: #00e5ff;
+            --card-bg: #1a1d24;
+            --border-color: #2d333b;
+            --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            font-family: var(--font-main);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 800px;
+            padding: 40px 20px;
+            width: 100%;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 50px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 30px;
+        }
+
+        h1 {
+            background: linear-gradient(to right, #fff, var(--accent-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        h2 {
+            color: var(--accent-color);
+            margin-top: 40px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        h3 {
+            color: #fff;
+            margin-top: 30px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        p {
+            font-size: 1.1em;
+            color: #adbac7;
+        }
+
+        ul {
+            padding-left: 20px;
+            margin-bottom: 25px;
+        }
+
+        li {
+            margin-bottom: 12px;
+            color: #adbac7;
+        }
+
+        li strong {
+            color: #fff;
+        }
+
+        .feature-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent-color);
+        }
+
+        .highlight {
+            background-color: rgba(0, 229, 255, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: var(--accent-color);
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+
+        .footer-note {
+            margin-top: 60px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+            font-size: 1.2em;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        /* Tech Stack Tags */
+        .tech-tags {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+
+        .tag {
+            background-color: #24292e;
+            border: 1px solid #444c56;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>BlackBird Media Player: A Ascensão de um Novo Player Desktop 🎵🎧</h1>
+            <p>Você lembra da época de ouro em que tínhamos nossos Media Players locais perfeitamente organizados, com temas customizáveis e performance absurda sem depender de uma aba pesada no navegador?</p>
+            <p>Apresento a vocês o <strong>BlackBird</strong>. Um reprodutor de mídia moderno, elegante e focado em entregar a melhor experiência local para o seu Desktop.</p>
+            
+            <div class="tech-tags" style="justify-content: center;">
+                <span class="tag">Electron</span>
+                <span class="tag">Vite</span>
+                <span class="tag">TypeScript</span>
+                <span class="tag">better-sqlite3</span>
+            </div>
+        </header>
+
+        <section>
+            <h2>🚀 Por Que o BlackBird? (Principais Funcionalidades)</h2>
+            <p>O BlackBird não é só mais um reprodutor; ele resolve problemas modernos de quem tem grandes bibliotecas e quer manter tudo centralizado.</p>
+
+            <div class="feature-card">
+                <h3>📁 1. Gerenciamento Inteligente de Mídia e Metadados</h3>
+                <p>Sabe aquela dor de cabeça organizando álbuns e artistas em pastas perdidas?</p>
+                <ul>
+                    <li><strong>Importação de Pasta Inteligente:</strong> Escolha qualquer diretório na sua máquina. O BlackBird vai varrer tudo recursivamente, extrair automaticamente tags ID3 das músicas, buscar a Capa do Álbum (Cover Art) e salvar as durações no banco de dados.</li>
+                    <li><strong>YouTube Integrado 📹:</strong> Isso mesmo! Além de arquivos locais, você pode colar um link do YouTube que o Player imediatamente fará o fetch dos metadados através do oEmbed e jogará na sua biblioteca. Você assiste ao vídeo fluído lábios sincronizados diretamente pela interface.</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <h3>🗂️ 2. Organização e Biblioteca Eficiente</h3>
+                <ul>
+                    <li>As mídias importadas caem num funil inteligente que categoriza toda a sua biblioteca em: <span class="highlight">Todas as Músicas</span>, <span class="highlight">Álbuns</span>, <span class="highlight">Artistas</span> e <span class="highlight">Vídeos</span>.</li>
+                    <li><strong>Playlists e Favoritos:</strong> Crie suas playlists e arraste/solte (Drag & Drop) suas tracks nelas de modo contínuo. Marcou uma música com ❤️? Ela já está na aba de seus Favoritos instantaneamente.</li>
+                    <li><strong>Busca Deep-Search:</strong> A barra de busca no topo filtra de forma massiva sobre títulos, artistas, gêneros e até por descrições customizadas simultaneamente!</li>
+                    <li><strong>Editor Embutido:</strong> Clicando no botão ✏️ (Editar), você abre um modal que permite sobrescrever na hora o Título, Álbum, Gênero e ainda fazer upload de uma nova imagem .JPG para atuar como capa (Artwork) exclusiva usando dados locais.</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <h3>🎛️ 3. Controle Fluído</h3>
+                <p>Se você é fã da velha guarda de manipulação em massa, você vai se sentir em casa.</p>
+                <ul>
+                    <li>O BlackBird possui um <strong>Universal Player Queue</strong>, que suporta tanto o toque de músicas nativas em MP3/FLAC quanto a reprodução em tempo real da mesma fila para um vídeo importado do YouTube!</li>
+                    <li>Controle puro com atalhos de <strong>Shuffle</strong> e <strong>Repeat</strong> (All / One).</li>
+                    <li><strong>Multi-Seleção Nativa:</strong> Segure o <span class="highlight">Cmd/Ctrl</span> ou o <span class="highlight">Shift</span> e selecione dezenas de músicas alternadas ou em bloco, seja para tocar tudo de forma contínua ou para limpar itens do banco de dados de uma vez só!</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <h3>🎨 4. Customização Dinâmica e "Data Safe"</h3>
+                <ul>
+                    <li><strong>Temas Modulares:</strong> Cansou da paleta dark clássica? Através da barra lateral de Theme Options, é possível importar arquivos JSON criados por você mesmo ditando novas cores (Exemplo disso é tema "Cyberpunk", modificando gradientes e neon instaneamente sem reload).</li>
+                    <li><strong>Exportação Total de Configurações (Backup de Dados):</strong> Vá até o menu superior do seu OS (<span class="highlight">File > Export Settings</span>). O BlackBird vai agrupar Listas de Reprodução, índicadores de tags, número de plays, bibliotecas e Temas em um único arquivo super leve JSON. Para restaurar na máquina nova, apenas importe esse arquivo!</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>🛠️ Arquitetura e Engenharia de Peso</h2>
+            <p>Tudo isso não adiantaria se o App "engasgasse" pra rodar. O BlackBird foi desenhado com processos totalmente apartados:</p>
+            <ul>
+                <li>Base core usando <strong>Electron</strong> empacotando o projeto desktop com a velocidade do construtor <strong>Vite</strong> com Hot Module Replacement para agilidade de desenvolvimento.</li>
+                <li><strong>SQLite nativo no próprio C++ (<span class="highlight">better-sqlite3</span>)</strong> evitando gargalos do Node.js, aguentando scale-up de leituras maciças instantâneas (sem callback-hell asíncrono travando a tela).</li>
+                <li>Uma <strong>UI hiper engenhosa Vanilla em TS/JS nativo e CSS</strong>. Isso garante manipulação exímia do DOM e uma renderização das listas que bate de frente com qualquer framework complexo pesando o Electron sem necessidade.</li>
+            </ul>
+        </section>
+
+        <div class="footer-note">
+            🚀 O BlackBird chegou para tocar essa música em alto volume! 💿
+        </div>
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,25 @@
+---
+description: Clean Code Rules adopted in BlackBird to guide AI on naming and logic patterns.
+globs: **/*.ts, **/*.js
+---
+
+# Clean Code and Development Patterns - BlackBird
+
+1. **Expressive Names in English**:
+   - Always use English for all nomenclature in the source code, without mixing (variables, files, functions).
+   - `camelCase` for most logical resources (instances, properties) and `PascalCase` for larger components, Constants, Types, Abstract Classes, or Interfaces (e.g., `IPlaylist`).
+
+2. **Single Responsibility**:
+   - Bloated functions are an anti-pattern to be strictly avoided. A function (e.g., `parseAudioMetadata`) only does parsing, it does not send to Electron IPC natively if that generates more than one functional assignment.
+   - Refactor code with blocks that could be small child functions or separate utilities in the `src/main/utils` or `src/renderer/utils` domain.
+
+3. **Obscure and Strict Typing (TypeScript)**:
+   - Never declare return methods vaguely.
+   - **`any` and `unknown` types are prohibited**. Map the interfaces (e.g., audio structures returned by Parsers) with the exact required tags, promoting 100% reliable autocompletes in Main and Front-end (Renderer).
+
+4. **Safety Code / Exception Interception and Handling**:
+   - Handling disk I/O (fs, better-sqlite3) and external libs requires defensive handling.
+   - Always wrap Promises liable to errors or critical manipulations with `try / catch` instruction blocks and adopt a friendly log or formatted response to be sent instead of "raw throw Errors" (crashing exceptions).
+
+5. **Uniform Project Linting**:
+   - Maintain project compatibility by running commands with `npm run format`.

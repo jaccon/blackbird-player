@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlackBird Media Player | A Ascensão</title>
+    <meta name="description"
+        content="BlackBird é um reprodutor de mídia moderno e elegante para desktop, garantindo máxima performance e integração entre mídia offline e online.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- Background Animated Gradient Elements -->
+    <div class="glow-orb" id="orb1"></div>
+    <div class="glow-orb" id="orb2"></div>
+
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="logo">
+            <svg class="logo-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"></path>
+                <path d="M9.5 9.5L16 12l-6.5 2.5v-5z"></path>
+            </svg>
+            <span>BlackBird</span>
+        </div>
+        <ul class="nav-links">
+            <li><a href="#features">Funcionalidades</a></li>
+            <li><a href="#video">Em Ação</a></li>
+            <li><a href="#architecture">Arquitetura</a></li>
+        </ul>
+        <a href="#download" class="btn-primary">Baixar Agora</a>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="hero">
+        <div class="hero-content">
+            <div class="badge">V1.0 DISPONÍVEL</div>
+            <h1 class="hero-title">A Ascensão de um <br><span class="text-gradient">Novo Paradigma</span></h1>
+            <p class="hero-subtitle">Você lembra da época de ouro dos Media Players locais? Nós trouxemos ela de volta.
+                Com temas customizáveis, performance absurda e integração com o YouTube em uma única interface premium
+                para Desktop.</p>
+            <div class="hero-cta">
+                <a href="#features" class="btn-primary glow-btn">Explorar Recursos</a>
+                <a href="#video" class="btn-secondary">Ver o Vídeo</a>
+            </div>
+        </div>
+        <div class="hero-visual">
+            <div class="glass-mockup perspective-mockup">
+                <!-- Using generated image placeholder -->
+                <img src="assets/hero.png" alt="BlackBird Interface">
+            </div>
+        </div>
+    </header>
+
+    <!-- Video Space Section -->
+    <section id="video" class="section video-section">
+        <div class="section-header">
+            <h2 class="section-title">Muito Além de um Player</h2>
+            <p class="section-desc">Assista em ação. Integração de mídia local, reprodução do YouTube em tempo real e
+                interface fluída.</p>
+        </div>
+        <div class="video-container glass-panel">
+            <!-- Emulated Video Space: Can be replaced with actual iframe/video tag -->
+            <div class="video-placeholder">
+                <div class="play-button pulse-anim">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="36" height="36">
+                        <path d="M8 5v14l11-7z" />
+                    </svg>
+                </div>
+                <div class="video-overlay-text">BlackBird Em Ação (Vídeo Showcase)</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="section features-section">
+        <div class="section-header">
+            <h2 class="section-title">Funcionalidades <span class="text-gradient">Disruptivas</span></h2>
+            <p class="section-desc">Desenhado para entusiastas de música e power users. Conheça as armas do BlackBird.
+            </p>
+        </div>
+
+        <div class="features-grid">
+            <!-- Feature 1 -->
+            <div class="feature-card glass-panel tilt-card">
+                <div class="feature-icon">📁</div>
+                <h3>Inteligência de Metadados</h3>
+                <p>Importação recursiva de pastas, extração automática de tags ID3, busca de capas de álbuns e
+                    <strong>YouTube Integrado</strong> via oEmbed com sincronismo real no player local.</p>
+            </div>
+
+            <!-- Feature 2 -->
+            <div class="feature-card glass-panel tilt-card">
+                <div class="feature-icon">🗂️</div>
+                <h3>Organização Deep-Search</h3>
+                <p>Navegue de forma massiva com filtros avançados sobre artistas, álbuns e descrições. Suas marcações de
+                    favoritos processadas instantaneamente através de nossa arquitetura de bus.</p>
+            </div>
+
+            <!-- Feature 3 -->
+            <div class="feature-card glass-panel tilt-card">
+                <div class="feature-icon">🎛️</div>
+                <h3>Controle Fluído & Queue</h3>
+                <p><strong>Universal Player Queue:</strong> toque desde FLAC altíssima qualidade a músicas pinçadas do
+                    YouTube em massa na mesma fila perfeitamente unificada. Multi-seleção total nativa.</p>
+            </div>
+
+            <!-- Feature 4 -->
+            <div class="feature-card glass-panel tilt-card">
+                <div class="feature-icon">🎨</div>
+                <h3>Customização Dinâmica</h3>
+                <p>Enjoado dos mesmos visuais? Suporte total a temas JSON carregados a quente. Construa e compartilhe
+                    esquemas como o famoso tema "Cyberpunk". Exportação total (*Data Safe*) em um clique.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Highlight / Screenshot 2 Section -->
+    <section class="section highlight-section">
+        <div class="highlight-grid">
+            <div class="highlight-text">
+                <h2 class="section-title">Experiência Rica & Nativa</h2>
+                <div class="highlight-item">
+                    <h4>Editor Visual Embutido</h4>
+                    <p>Sobrescreva títulos, gêneros e faça upload instantâneo de imagens .JPG de capas que você curte.
+                        Controle total sobre a metadata em segundos.</p>
+                </div>
+                <div class="highlight-item">
+                    <h4>Desempenho Maciço</h4>
+                    <p>Milhares de faixas lidas num piscar de olhos. Sem travamentos e listagens infinitas sem engasgos.
+                    </p>
+                </div>
+            </div>
+            <div class="highlight-visual">
+                <div class="glass-mockup float-anim">
+                    <img src="assets/library.png" alt="BlackBird Library UI">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Section -->
+    <section id="architecture" class="section arch-section">
+        <div class="glass-panel text-center">
+            <h2 class="section-title">Arquitetura de Peso</h2>
+            <p class="arch-desc">Construído em <strong>Electron</strong> &amp; <strong>Vite</strong>. Movido pelo
+                poderoso banco de dados transacional e síncrono <strong>SQLite V3 nativo (better-sqlite3)</strong>,
+                garantindo queries instantâneas.</p>
+            <p class="arch-desc">Rodando interface puramente Vanilla em <strong>Typescript</strong> e <strong>CSS
+                    moderno</strong>, varrendo gargalos que os frameworks de front-end trariam, atingindo o máximo de
+                velocidade, com o mínimo de latência processando mídias.</p>
+        </div>
+
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>BlackBird Media Player © 2026. A Ascensão do som local e conectado.</p>
+    </footer>
+
+    <script src="main.js"></script>
+</body>
+
+</html>

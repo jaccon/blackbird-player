@@ -118,7 +118,7 @@ app.whenReady().then(() => {
                    
                    // Import Themes
                    if (importObject.themes && Array.isArray(importObject.themes)) {
-                      const themeDestDir = join(app.getAppPath(), 'resources', 'themes')
+                      const themeDestDir = join(app.getPath('userData'), 'themes')
                       if (!fs.existsSync(themeDestDir)) {
                          fs.mkdirSync(themeDestDir, { recursive: true })
                       }
@@ -182,7 +182,7 @@ app.whenReady().then(() => {
 
     try {
       const themePath = filePaths[0]
-      const themeDestDir = join(app.getAppPath(), 'resources', 'themes')
+      const themeDestDir = join(app.getPath('userData'), 'themes')
       
       if (!fs.existsSync(themeDestDir)) {
         fs.mkdirSync(themeDestDir, { recursive: true })
@@ -330,6 +330,8 @@ app.whenReady().then(() => {
     return await getMetadata(filePath, true)
   })
   ipcMain.handle('upsert-track', (_, track: any) => dbOps.upsertTrack(track))
+  ipcMain.handle('record-play', (_, trackUuid: string) => dbOps.recordPlay(trackUuid))
+  ipcMain.handle('get-statistics', () => dbOps.getStatistics())
 
   createWindow()
 

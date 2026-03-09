@@ -1,0 +1,17 @@
+{
+  "name": "Ocean",
+  "variables": {
+    "--bg-dark": "#0B192C",
+    "--bg-card": "#1A365D",
+    "--sidebar-bg": "#081324",
+    "--text-main": "#E2E8F0",
+    "--text-muted": "#94A3B8",
+    "--accent": "#38BDF8",
+    "--accent-glow": "rgba(56, 189, 248, 0.4)",
+    "--border": "#1E3A8A",
+    "--glass": "rgba(226, 232, 240, 0.05)",
+    "--radius-lg": "16px",
+    "--radius-md": "8px",
+    "--font-family": "system-ui, sans-serif"
+  }
+}
