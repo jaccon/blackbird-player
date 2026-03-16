@@ -6,6 +6,13 @@ import icon from '../../resources/icon.png?asset'
 import { getMetadata, scanDirectory } from './metadata'
 import { dbOps } from './database'
 import { v4 as uuidv4 } from 'uuid'
+import ChromecastAPI from 'chromecast-api'
+import localIpUrl from 'local-ip-url'
+import * as http from 'http'
+
+const castClient = new ChromecastAPI()
+let castMediaServer: http.Server | null = null
+let castMediaPort = 0
 
 function createWindow(): void {
   // Create the browser window.
@@ -45,6 +52,12 @@ function createWindow(): void {
 // Some APIs can only be used after this event occurs.
 
 app.setName('BlackBird')
+
+// Create default music folder for easy backup
+const defaultMusicDir = join(app.getPath('music'), 'BlackBird');
+if (!fs.existsSync(defaultMusicDir)) {
+  fs.mkdirSync(defaultMusicDir, { recursive: true });
+}
 
 app.whenReady().then(() => {
   // Set app user model id for windows
@@ -307,12 +320,14 @@ app.whenReady().then(() => {
   ipcMain.handle('get-playlists', () => dbOps.getAllPlaylists())
   ipcMain.handle('create-playlist', (_, name: string) => dbOps.createPlaylist(name))
   ipcMain.handle('add-to-playlist', (_, { playlistId, trackUuid }) => dbOps.addTrackToPlaylist(playlistId, trackUuid))
+  ipcMain.handle('remove-from-playlist', (_, { playlistId, trackUuid }) => dbOps.removeTrackFromPlaylist(playlistId, trackUuid))
   ipcMain.handle('get-playlist-tracks', (_, playlistId: string) => dbOps.getPlaylistTracks(playlistId))
   ipcMain.handle('update-track', (_, { uuid, data }) => dbOps.updateTrack(uuid, data))
   ipcMain.handle('delete-playlist', (_, id: string) => dbOps.deletePlaylist(id))
   ipcMain.handle('get-library', () => dbOps.getAllTracks())
   ipcMain.handle('get-track-cover', async (_, { uuid, filePath }) => {
     try {
+      if (filePath.startsWith('http')) return null
       const metadata = await getMetadata(filePath, false) // false = fetch cover
       if (metadata.cover) {
         dbOps.updateTrack(uuid, { cover: metadata.cover })
@@ -327,11 +342,95 @@ app.whenReady().then(() => {
   ipcMain.handle('delete-tracks', (_, uuids: string[]) => dbOps.deleteTracks(uuids))
   ipcMain.handle('get-favorites', () => dbOps.getFavoriteTracks())
   ipcMain.handle('process-metadata', async (_, filePath: string) => {
+    if (filePath.startsWith('http')) return {}
     return await getMetadata(filePath, true)
   })
   ipcMain.handle('upsert-track', (_, track: any) => dbOps.upsertTrack(track))
   ipcMain.handle('record-play', (_, trackUuid: string) => dbOps.recordPlay(trackUuid))
   ipcMain.handle('get-statistics', () => dbOps.getStatistics())
+  ipcMain.handle('save-user-radio', (_, radio: any) => dbOps.saveUserRadio(radio))
+  ipcMain.handle('get-user-radios', () => dbOps.getUserRadios())
+  ipcMain.handle('delete-user-radio', (_, id: string) => dbOps.deleteUserRadio(id))
+  
+  ipcMain.handle('fetch-remote-json', async (_, url: string) => {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+      return await response.json()
+    } catch (e: any) {
+      console.error('fetch-remote-json error:', e)
+      return { error: e.message }
+    }
+  })
+
+  ipcMain.handle('start-cast-scan', async () => {
+    return new Promise((resolve) => {
+      console.log('Scanning for Cast devices...')
+      castClient.update()
+      setTimeout(() => {
+        const devices = castClient.devices.map(d => ({
+          id: d.host,
+          name: d.friendlyName,
+          type: (d as any).type || 'Device'
+        }))
+        console.log(`Found ${devices.length} devices`)
+        resolve(devices)
+      }, 3000)
+    })
+  })
+
+  ipcMain.handle('start-cast-playback', async (_, { deviceId, trackUuid }) => {
+    try {
+      const track = dbOps.getAllTracks().find(t => t.uuid === trackUuid)
+      if (!track) throw new Error('Track not found')
+
+      const device = castClient.devices.find(d => d.host === deviceId)
+      if (!device) throw new Error('Device not found')
+
+      const ip = localIpUrl()
+      
+      // Start media server if not running
+      if (!castMediaServer) {
+        castMediaServer = http.createServer((req, res) => {
+          const filePath = decodeURIComponent(req.url || '').substring(1)
+          if (fs.existsSync(filePath)) {
+            const stat = fs.statSync(filePath)
+            res.writeHead(200, {
+              'Content-Type': 'audio/mpeg',
+              'Content-Length': stat.size,
+              'Access-Control-Allow-Origin': '*'
+            })
+            fs.createReadStream(filePath).pipe(res)
+          } else {
+            res.writeHead(404)
+            res.end()
+          }
+        })
+        
+        await new Promise<void>((resolve) => {
+          castMediaServer!.listen(0, () => {
+            const addr = castMediaServer!.address() as any
+            castMediaPort = addr.port
+            console.log(`Cast media server running at http://${ip}:${castMediaPort}`)
+            resolve()
+          })
+        })
+      }
+
+      const mediaUrl = `http://${ip}:${castMediaPort}/${encodeURIComponent(track.filePath)}`
+      console.log(`Casting media: ${mediaUrl} to ${device.friendlyName}`)
+      
+      return new Promise((resolve, reject) => {
+        device.play(mediaUrl, (err) => {
+          if (err) reject(err)
+          else resolve({ success: true })
+        })
+      })
+    } catch (e: any) {
+      console.error('Cast playback failed:', e)
+      return { success: false, error: e.message }
+    }
+  })
 
   createWindow()
 

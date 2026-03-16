@@ -1,7 +1,7 @@
 {
   "name": "blackbird-player",
   "productName": "BlackBird",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "BlackBird Media Player",
   "main": "./out/main/index.js",
   "author": "Jaccon",
@@ -25,6 +25,8 @@
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "better-sqlite3": "^11.10.0",
+    "chromecast-api": "^0.4.2",
+    "local-ip-url": "^1.0.10",
     "lucide-static": "^0.577.0",
     "music-metadata": "^11.12.1",
     "uuid": "^13.0.0"

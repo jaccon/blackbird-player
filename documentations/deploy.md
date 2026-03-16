@@ -62,3 +62,26 @@ The following accesses are enabled for distributed builds:
 - Read/Write to User Desktop, Downloads, and general user-selected files.
 - Removable Volumes (Pen Drives, External HDs).
 - Basic Audio (Microphone) and Camera API support for embedded elements.
+
+## Creating a GitHub Release
+
+Once you have bumped your `package.json` version and compiled the new `/dist` installers, follow these steps to tag and publish the new release to GitHub:
+
+1. **Commit your changes:**
+   ```bash
+   git add .
+   git commit -m "feat: release version 1.0.X (Describe your features)"
+   ```
+
+2. **Create the Git Tag:**
+   ```bash
+   git tag v1.0.X
+   ```
+
+3. **Push the commit and the Tag to GitHub:**
+   ```bash
+   git push origin main
+   git push origin v1.0.X
+   ```
+
+4. Go to the **Releases** tab on your GitHub repository page. GitHub will show the new tag. Click **"Draft a new release"**, select the `v1.0.X` tag, write your release notes, and upload the generated files from the `/dist` folder (e.g., `.setup.exe`, `.dmg`, `.pkg`).

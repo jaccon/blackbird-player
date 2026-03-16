@@ -55,3 +55,19 @@ Se a compilação final mostrar o nome de "electron-fallback" ou apenas "Electro
 
 ### 3. Alterando o Ícone
 Os ícones originais do aplicativo ficam localizados na pasta `build/` (tipicamente devem ser nomeados como `icon.icns` para Mac, e `icon.ico` para Windows). Para trocar o ícone, substitua esses arquivos e realize uma nova execução de build.
+### 4. Erro de Assinatura (Code Signing / PKCS12 wrong password)
+Se o build falhar com o erro `SecKeychainItemImport: MAC verification failed during PKCS12 import (wrong password?)` ou falha na assinatura de Windows:
+*   Isso significa que a senha do certificado `.pfx` está incorreta ou não foi configurada.
+*   **Solução para macOS:**
+    ```bash
+    export CSC_LINK="/Users/jaccon/Documents/Workspace/Jaccon/Lab/BlackBird/certs/INDIEWORKS TECNOLOGIA S S LTDA_08078195000102.pfx"
+    export CSC_KEY_PASSWORD="Livia@2013"
+    npm run build:mac
+    ```
+*   **Solução para Windows:**
+    ```bash
+    export CSC_LINK="/Users/jaccon/Documents/Workspace/Jaccon/Lab/BlackBird/certs/INDIEWORKS TECNOLOGIA S S LTDA_08078195000102.pfx"
+    export CSC_KEY_PASSWORD="Livia@2013"
+    npm run build:win
+    ```
+    *(Nota: A senha correta foi identificada como `Livia@2013` conforme consta nos registros do projeto).*

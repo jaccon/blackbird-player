@@ -1,0 +1,18 @@
+{
+  "name": "Pink World",
+  "variables": {
+    "--bg-dark": "#fce7f3",
+    "--bg-card": "#fce7f3",
+    "--sidebar-bg": "#fce7f3",
+    "--text-main": "#500724",
+    "--text-muted": "#9d174d",
+    "--accent": "#ec4899",
+    "--accent-glow": "rgba(236, 72, 153, 0.3)",
+    "--player-bg": "#f472b6",
+    "--border": "#fbcfe8",
+    "--glass": "rgba(255, 255, 255, 0.4)",
+    "--radius-lg": "32px",
+    "--radius-md": "16px",
+    "--font-family": "'Outfit', sans-serif"
+  }
+}

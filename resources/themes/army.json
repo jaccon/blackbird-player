@@ -1,0 +1,18 @@
+{
+  "name": "Army",
+  "variables": {
+    "--bg-dark": "#1b1f13",
+    "--bg-card": "#2d331d",
+    "--sidebar-bg": "#1b1f13",
+    "--text-main": "#f2f2e9",
+    "--text-muted": "#a3a38e",
+    "--accent": "#829356",
+    "--accent-glow": "rgba(130, 147, 86, 0.4)",
+    "--player-bg": "#242918",
+    "--border": "#3f462a",
+    "--glass": "rgba(130, 147, 86, 0.08)",
+    "--radius-lg": "4px",
+    "--radius-md": "2px",
+    "--font-family": "'Outfit', sans-serif"
+  }
+}

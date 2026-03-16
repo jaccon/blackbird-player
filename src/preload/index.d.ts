@@ -30,6 +30,7 @@ declare global {
       getPlaylists: () => Promise<Playlist[]>;
       createPlaylist: (name: string) => Promise<string>;
       addToPlaylist: (playlistId: string, trackUuid: string) => Promise<{ error?: string }>;
+      removeFromPlaylist: (playlistId: string, trackUuid: string) => Promise<void>;
       getPlaylistTracks: (playlistId: string) => Promise<TrackMetadata[]>;
       updateTrack: (uuid: string, data: Partial<TrackMetadata>) => Promise<void>;
       deletePlaylist: (id: string) => Promise<void>;

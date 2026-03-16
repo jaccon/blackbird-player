@@ -8,6 +8,7 @@ const api = {
   getPlaylists: () => ipcRenderer.invoke('get-playlists'),
   createPlaylist: (name: string) => ipcRenderer.invoke('create-playlist', name),
   addToPlaylist: (playlistId: string, trackUuid: string) => ipcRenderer.invoke('add-to-playlist', { playlistId, trackUuid }),
+  removeFromPlaylist: (playlistId: string, trackUuid: string) => ipcRenderer.invoke('remove-from-playlist', { playlistId, trackUuid }),
   getPlaylistTracks: (playlistId: string) => ipcRenderer.invoke('get-playlist-tracks', playlistId),
   updateTrack: (uuid: string, data: any) => ipcRenderer.invoke('update-track', { uuid, data }),
   deletePlaylist: (id: string) => ipcRenderer.invoke('delete-playlist', id),
@@ -22,7 +23,14 @@ const api = {
   upsertTrack: (track: any) => ipcRenderer.invoke('upsert-track', track),
   importTheme: () => ipcRenderer.invoke('import-theme'),
   recordPlay: (trackUuid: string) => ipcRenderer.invoke('record-play', trackUuid),
-  getStatistics: () => ipcRenderer.invoke('get-statistics')
+  getStatistics: () => ipcRenderer.invoke('get-statistics'),
+  startCastScan: () => ipcRenderer.invoke('start-cast-scan'),
+  startCastPlayback: (deviceId: string, trackUuid: string) => ipcRenderer.invoke('start-cast-playback', { deviceId, trackUuid }),
+  saveUserRadio: (radio: any) => ipcRenderer.invoke('save-user-radio', radio),
+  getUserRadios: () => ipcRenderer.invoke('get-user-radios'),
+  deleteUserRadio: (id: string) => ipcRenderer.invoke('delete-user-radio', id),
+  fetchRemoteJson: (url: string) => ipcRenderer.invoke('fetch-remote-json', url),
+  getCastDevices: () => ipcRenderer.invoke('start-cast-scan')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

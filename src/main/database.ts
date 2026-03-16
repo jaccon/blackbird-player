@@ -10,6 +10,40 @@ const Database = requireNative('better-sqlite3');
 const dbPath = path.join(app.getPath('userData'), 'blackbird.db');
 const db = new Database(dbPath);
 
+const coversDir = path.join(app.getPath('userData'), 'covers');
+if (!fs.existsSync(coversDir)) {
+  fs.mkdirSync(coversDir, { recursive: true });
+}
+
+function saveCoverToFile(uuid: string, coverData: string | null | undefined): string | null {
+  if (!coverData) return null;
+  if (!coverData.startsWith('data:')) return coverData; // Already a path or URL
+
+  try {
+    const matches = coverData.match(/^data:image\/([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) return coverData;
+
+    const extension = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+    const buffer = Buffer.from(matches[2], 'base64');
+    const fileName = `${uuid}.${extension}`;
+    const filePath = path.join(coversDir, fileName);
+
+    fs.writeFileSync(filePath, buffer);
+    return filePath;
+  } catch (e) {
+    console.error('Failed to save cover to file:', e);
+    return coverData;
+  }
+}
+
+function formatCoverUrl(coverPath: string | null | undefined): string | null {
+  if (!coverPath) return null;
+  if (coverPath.startsWith('data:') || coverPath.startsWith('http') || coverPath.startsWith('file://')) {
+    return coverPath;
+  }
+  return `file://${coverPath}`;
+}
+
 // Initialize schema
 db.exec(`
   CREATE TABLE IF NOT EXISTS tracks (
@@ -45,6 +79,14 @@ db.exec(`
     duration_played REAL,
     played_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(track_uuid) REFERENCES tracks(uuid) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS user_radios (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    share INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
 
@@ -112,11 +154,17 @@ export interface DBTrack {
 export interface Playlist {
   id: string;
   name: string;
+  trackCount?: number;
+  totalDuration?: number;
 }
 
 export const dbOps = {
   // Tracks
   upsertTrack: (track: DBTrack) => {
+    if (track.cover && track.cover.startsWith('data:')) {
+      track.cover = saveCoverToFile(track.uuid, track.cover) || undefined;
+    }
+
     const stmt = db.prepare(`
       INSERT INTO tracks (uuid, title, artist, album, file_path, format, cover, duration, is_favorite, description)
       VALUES (@uuid, @title, @artist, @album, @file_path, @format, @cover, @duration, @is_favorite, @description)
@@ -133,7 +181,11 @@ export const dbOps = {
   },
 
   getTrackByPath: (filePath: string) => {
-    return db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks WHERE file_path = ?').get(filePath) as any;
+    const track = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks WHERE file_path = ?').get(filePath) as any;
+    if (track && track.cover) {
+      track.cover = formatCoverUrl(track.cover);
+    }
+    return track;
   },
 
   // Statistics
@@ -151,7 +203,11 @@ export const dbOps = {
       GROUP BY p.track_uuid 
       ORDER BY playCount DESC 
       LIMIT 10
-    `).all();
+    `).all() as any[];
+
+    topTracks.forEach(t => {
+      if (t.cover) t.cover = formatCoverUrl(t.cover);
+    });
 
     const topFormatRow = db.prepare(`
       SELECT t.format, COUNT(p.id) as playCount 
@@ -188,6 +244,18 @@ export const dbOps = {
       LIMIT 3
     `).all() as any[];
 
+    const allTracks = db.prepare('SELECT file_path FROM tracks').all() as any[];
+    let totalBytes = 0;
+    for (const t of allTracks) {
+      try {
+        if (fs.existsSync(t.file_path)) {
+          totalBytes += fs.statSync(t.file_path).size;
+        }
+      } catch (e) {
+        // Skip files that might have been moved or deleted
+      }
+    }
+
     return {
       topTracks: topTracks,
       topFormat: topFormatRow?.format || 'None',
@@ -195,6 +263,7 @@ export const dbOps = {
       hoursListenedLastMonth: hoursRow && hoursRow.totalSeconds ? (hoursRow.totalSeconds / 3600) : 0,
       totalTracks: totalTracksRow?.count || 0,
       totalAlbums: totalAlbumsRow?.count || 0,
+      totalSize: totalBytes,
       activeHours: activeHours
     };
   },
@@ -207,7 +276,13 @@ export const dbOps = {
   },
 
   getAllPlaylists: () => {
-    return db.prepare('SELECT * FROM playlists ORDER BY created_at DESC').all() as Playlist[];
+    return db.prepare(`
+      SELECT p.*, 
+             (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = p.id) as trackCount,
+             (SELECT SUM(t.duration) FROM tracks t JOIN playlist_tracks pt ON t.uuid = pt.track_uuid WHERE pt.playlist_id = p.id) as totalDuration
+      FROM playlists p 
+      ORDER BY p.created_at DESC
+    `).all() as Playlist[];
   },
 
   addTrackToPlaylist: (playlistId: string, trackUuid: string) => {
@@ -225,19 +300,31 @@ export const dbOps = {
     return db.prepare('INSERT INTO playlist_tracks (playlist_id, track_uuid) VALUES (?, ?)').run(playlistId, trackUuid);
   },
 
+  removeTrackFromPlaylist: (playlistId: string, trackUuid: string) => {
+    return db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ? AND track_uuid = ?').run(playlistId, trackUuid);
+  },
+
   updateTrack: (uuid: string, data: Partial<DBTrack>) => {
+    if (data.cover && data.cover.startsWith('data:')) {
+      data.cover = saveCoverToFile(uuid, data.cover) || undefined;
+    }
     const fields = Object.keys(data).map(key => `${key} = ?`).join(', ');
     const values = Object.values(data);
     return db.prepare(`UPDATE tracks SET ${fields} WHERE uuid = ?`).run(...values, uuid);
   },
 
   getPlaylistTracks: (playlistId: string) => {
-    return db.prepare(`
+    const tracks = db.prepare(`
       SELECT t.uuid, t.title, t.artist, t.album, t.file_path as filePath, t.format, t.cover, t.duration, t.is_favorite, t.description
       FROM tracks t
       JOIN playlist_tracks pt ON t.uuid = pt.track_uuid
       WHERE pt.playlist_id = ?
     `).all(playlistId) as any[];
+    
+    tracks.forEach(t => {
+      if (t.cover) t.cover = formatCoverUrl(t.cover);
+    });
+    return tracks;
   },
 
   deletePlaylist: (id: string) => {
@@ -246,11 +333,19 @@ export const dbOps = {
   },
 
   getAllTracks: () => {
-    return db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks').all() as any[];
+    const tracks = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks').all() as any[];
+    tracks.forEach(t => {
+      if (t.cover) t.cover = formatCoverUrl(t.cover);
+    });
+    return tracks;
   },
 
   getFavoriteTracks: () => {
-    return db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks WHERE is_favorite = 1').all() as any[];
+    const tracks = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks WHERE is_favorite = 1').all() as any[];
+    tracks.forEach(t => {
+      if (t.cover) t.cover = formatCoverUrl(t.cover);
+    });
+    return tracks;
   },
 
   getThemes: () => {
@@ -281,8 +376,28 @@ export const dbOps = {
 
   deleteTracks: (uuids: string[]) => {
     const placeholders = uuids.map(() => '?').join(',');
+    
+    // Get cover paths before deleting
+    const tracksWithCovers = db.prepare(`SELECT cover FROM tracks WHERE uuid IN (${placeholders}) AND cover NOT LIKE 'data:%' AND cover IS NOT NULL`).all(...uuids) as any[];
+    
     db.prepare(`DELETE FROM playlist_tracks WHERE track_uuid IN (${placeholders})`).run(...uuids);
-    return db.prepare(`DELETE FROM tracks WHERE uuid IN (${placeholders})`).run(...uuids);
+    const result = db.prepare(`DELETE FROM tracks WHERE uuid IN (${placeholders})`).run(...uuids);
+    
+    // Delete cover files
+    for (const t of tracksWithCovers) {
+      if (t.cover && !t.cover.startsWith('data:') && !t.cover.startsWith('http')) {
+        try {
+          const filePath = t.cover.startsWith('file://') ? t.cover.slice(7) : t.cover;
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        } catch (e) {
+          console.error('Failed to delete cover file:', e);
+        }
+      }
+    }
+    
+    return result;
   },
 
   getAllRaw: () => {
@@ -326,5 +441,56 @@ export const dbOps = {
       console.error('Import failed', e);
       return { success: false, error: e.message };
     }
+  },
+
+  migrateCoversToFile: () => {
+    const tracks = db.prepare("SELECT uuid, cover FROM tracks WHERE cover LIKE 'data:%'").all() as any[];
+    console.log(`Starting migration of ${tracks.length} covers to files...`);
+    
+    let migrated = 0;
+    const updateStmt = db.prepare("UPDATE tracks SET cover = ? WHERE uuid = ?");
+    
+    db.transaction(() => {
+      for (const t of tracks) {
+        try {
+          const filePath = saveCoverToFile(t.uuid, t.cover);
+          if (filePath && filePath !== t.cover) {
+            updateStmt.run(filePath, t.uuid);
+            migrated++;
+          }
+        } catch (e) {
+          console.error(`Failed to migrate cover for ${t.uuid}:`, e);
+        }
+      }
+    })();
+    
+    console.log(`Migration completed. ${migrated} covers moved to files.`);
+    if (migrated > 0) {
+      console.log('Vacuuming database to reclaim space...');
+      db.exec('VACUUM');
+    }
+    return migrated;
+  },
+  
+  // User Radios
+  saveUserRadio: (radio: { id: string, name: string, url: string, share: number }) => {
+    return db.prepare('INSERT INTO user_radios (id, name, url, share) VALUES (?, ?, ?, ?)').run(radio.id, radio.name, radio.url, radio.share);
+  },
+
+  getUserRadios: () => {
+    return db.prepare('SELECT * FROM user_radios ORDER BY created_at DESC').all() as any[];
+  },
+
+  deleteUserRadio: (id: string) => {
+    return db.prepare('DELETE FROM user_radios WHERE id = ?').run(id);
   }
 };
+
+// Auto-run migration on startup
+setTimeout(() => {
+  try {
+    dbOps.migrateCoversToFile();
+  } catch (e) {
+    console.error('Error during cover migration:', e);
+  }
+}, 5000);
