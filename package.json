@@ -1,7 +1,7 @@
 {
   "name": "blackbird-player",
   "productName": "BlackBird",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "BlackBird Media Player",
   "main": "./out/main/index.js",
   "author": "Jaccon",

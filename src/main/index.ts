@@ -43,12 +43,12 @@ function createWindow(): void {
 
   // Set Referer for YouTube Embeds in production
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
-    { urls: ['https://www.youtube.com/embed/*'] },
+    { urls: ['https://www.youtube.com/*', 'https://*.youtube.com/*', 'https://*.ytimg.com/*'] },
     (details, callback) => {
-      if (!details.requestHeaders['Referer']) {
-        details.requestHeaders['Referer'] = 'https://www.youtube.com'
-      }
-      callback({ requestHeaders: details.requestHeaders })
+      details.requestHeaders['Referer'] = 'https://www.youtube.com/'
+      details.requestHeaders['Origin'] = 'https://www.youtube.com'
+      details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      callback({ cancel: false, requestHeaders: details.requestHeaders })
     }
   )
 
