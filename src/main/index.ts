@@ -41,6 +41,17 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
+  // Set Referer for YouTube Embeds in production
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: ['https://www.youtube.com/embed/*'] },
+    (details, callback) => {
+      if (!details.requestHeaders['Referer']) {
+        details.requestHeaders['Referer'] = 'https://www.youtube.com'
+      }
+      callback({ requestHeaders: details.requestHeaders })
+    }
+  )
+
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

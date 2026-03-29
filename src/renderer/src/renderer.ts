@@ -1402,7 +1402,7 @@ function playTrack(index: number): void {
 
     const container = document.getElementById('video-overlay')!
     container.innerHTML = `
-      <iframe id="yt-iframe" width="100%" height="100%" src="https://www.youtube.com/embed/${ytId}?autoplay=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+      <iframe id="yt-iframe" width="100%" height="100%" src="https://www.youtube.com/embed/${ytId}?autoplay=1&origin=https://www.youtube.com" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
       <button id="btn-close-video" class="btn-icon circle"><i data-lucide="x"></i></button>
     `
     document.getElementById('btn-close-video')!.onclick = () => {
