@@ -268,6 +268,22 @@ export const dbOps = {
     };
   },
 
+  getPlayHistory: () => {
+    const history = db.prepare(`
+      SELECT p.id, t.uuid, t.title, t.artist, t.album, t.file_path as filePath, t.format, t.cover, t.duration, t.is_favorite, t.description, p.played_at 
+      FROM play_history p 
+      JOIN tracks t ON p.track_uuid = t.uuid 
+      ORDER BY p.id DESC 
+      LIMIT 100
+    `).all() as any[];
+
+    history.forEach(t => {
+      if (t.cover) t.cover = formatCoverUrl(t.cover);
+    });
+
+    return history;
+  },
+
   // Playlists
   createPlaylist: (name: string) => {
     const id = uuidv4();

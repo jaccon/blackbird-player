@@ -17,6 +17,7 @@ const api = {
   getThemes: () => ipcRenderer.invoke('get-themes'),
   deleteTracks: (uuids: string[]) => ipcRenderer.invoke('delete-tracks', uuids),
   getFavorites: () => ipcRenderer.invoke('get-favorites'),
+  getPlayHistory: () => ipcRenderer.invoke('get-play-history'),
   selectFiles: () => ipcRenderer.invoke('select-files'),
   getYTMeta: (url: string) => ipcRenderer.invoke('get-yt-metadata', url),
   processMeta: (filePath: string) => ipcRenderer.invoke('process-metadata', filePath),

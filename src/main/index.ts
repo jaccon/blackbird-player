@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, net, Menu, MenuItemConstructorOptions } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, net, Menu, MenuItemConstructorOptions, protocol } from 'electron'
 import { join, basename } from 'path'
 import * as fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -10,6 +10,9 @@ import ChromecastAPI from 'chromecast-api'
 import localIpUrl from 'local-ip-url'
 import * as http from 'http'
 
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'local', privileges: { secure: true, supportFetchAPI: true, bypassCSP: true, stream: true } }
+])
 const castClient = new ChromecastAPI()
 let castMediaServer: http.Server | null = null
 let castMediaPort = 0
@@ -71,7 +74,16 @@ app.whenReady().then(() => {
   })
 
   // Register file:// protocol replacement for security/local access if needed
-  
+  protocol.registerFileProtocol('local', (request, callback) => {
+    try {
+      const decodedUrl = decodeURIComponent(request.url.replace(/^local:\/\//, ''))
+      const withoutParams = decodedUrl.split('?')[0].split('#')[0]
+      callback({ path: withoutParams })
+    } catch (error) {
+      console.error('Failed to parse local URL', error)
+      callback({ error: -2 })
+    }
+  })
   // App Menu with Export Settings
   const isMac = process.platform === 'darwin'
   const template: MenuItemConstructorOptions[] = [
@@ -341,6 +353,7 @@ app.whenReady().then(() => {
   ipcMain.handle('get-themes', () => dbOps.getThemes())
   ipcMain.handle('delete-tracks', (_, uuids: string[]) => dbOps.deleteTracks(uuids))
   ipcMain.handle('get-favorites', () => dbOps.getFavoriteTracks())
+  ipcMain.handle('get-play-history', () => dbOps.getPlayHistory())
   ipcMain.handle('process-metadata', async (_, filePath: string) => {
     if (filePath.startsWith('http')) return {}
     return await getMetadata(filePath, true)

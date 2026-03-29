@@ -454,6 +454,22 @@ function attachListeners(): void {
     renderStatistics(stats)
   })
 
+  document.getElementById('btn-history')?.addEventListener('click', async () => {
+    selectedTrackUuids.clear()
+    setActiveNav('btn-history')
+    
+    contentView.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); gap: 16px;">
+        <i data-lucide="loader" class="spinner" style="width: 32px; height: 32px; animation: spin 1s linear infinite;"></i>
+        <p>Loading history...</p>
+      </div>
+    `
+    if ((window as any).lucide) (window as any).lucide.createIcons()
+
+    const historyItems = await (window as any).api.getPlayHistory()
+    renderHistory(historyItems)
+  })
+
   btnImportMedia.addEventListener('click', handleAddFolder)
   btnImportYoutube.addEventListener('click', () => {
     modalContainer.classList.remove('hidden')
@@ -592,6 +608,27 @@ function attachListeners(): void {
     const error = audio.error
     console.error('Audio object error event:', error)
     if (error && (window as any).showRadioToast) {
+      // Code 3 (Network error) or 4 (Src not supported) usually means file is missing/moved
+      if ((error.code === 3 || error.code === 4) && currentPlaylist && currentPlaylist[currentTrackIndex]) {
+        const track = currentPlaylist[currentTrackIndex]
+        ;(window as any).showRadioToast(`⚠️ Arquivo não encontrado: ${track.title || 'Música'}. Pulando...`)
+        
+        // Visually mark track as missing
+        const trackEls = document.querySelectorAll(`.track-item[data-uuid="${track.uuid}"]`)
+        trackEls.forEach(el => {
+          (el as HTMLElement).style.opacity = '0.4'
+          const pathDiv = el.querySelector('.track-list-path')
+          if (pathDiv) pathDiv.innerHTML = '<span style="color: #ff4c4c; font-weight: 600;">⚠️ Arquivo ou pasta original não encontrada</span>'
+        })
+
+        // Auto-skip after a brief delay
+        setTimeout(() => {
+          if (currentPlaylist.length > 1) playNext()
+        }, 2500)
+        
+        return
+      }
+      
       const msgs = ['Unknown error', 'Aborted', 'Network error', 'Decode error', 'Source not supported']
       ;(window as any).showRadioToast(`Player Error: ${msgs[error.code] || 'Failed to load'}`)
     }
@@ -774,10 +811,21 @@ async function handleSaveYoutube(): Promise<void> {
     format: 'youtube', 
     cover: meta.thumbnail,
     duration: 0,
-    is_favorite: 0
+    is_favorite: 0,
+    description: ''
   }
   
-  await (window as any).api.upsertTrack(track)
+  try {
+    const result = await (window as any).api.upsertTrack(track)
+    if (result && result.error) {
+      alert(`Erro ao salvar no banco de dados: ${result.error}`)
+      return
+    }
+  } catch (dbErr) {
+    console.error('Database error on YT import:', dbErr)
+    alert('Erro inesperado ao salvar a faixa do YouTube.')
+    return
+  }
   
   // Clear and close
   inputYTUrl.value = ''
@@ -840,9 +888,10 @@ function renderTrackList(tracks: TrackMetadata[], title = 'All Songs'): void {
                  data-uuid="${track.uuid}"
                  draggable="true">
               <div class="track-num">${index + 1}</div>
-              <div class="track-name-cell">
+              <div class="track-name-cell" style="overflow: hidden;">
                 <div class="track-name">${track.title || track.fileName || (track.filePath ? track.filePath.split(/[\\\/]/).pop() ?? 'Unknown' : 'Unknown')}</div>
                 <div class="track-list-artist">${track.artist || 'Unknown'}</div>
+                <div class="track-list-path" style="font-size: 10px; color: var(--text-muted); opacity: 0.6; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${track.filePath || ''}">${track.filePath || ''}</div>
               </div>
               <div class="track-album-cell">${track.album || 'Unknown Album'}</div>
               <div class="track-kind-cell" style="font-size: 13px; color: var(--text-muted); text-transform: uppercase;">${track.format || 'Unknown'}</div>
@@ -1129,6 +1178,82 @@ function renderArtistGrid(): void {
   })
 }
 
+function renderHistory(items: any[]): void {
+  contentView.innerHTML = `
+    <div class="track-list-view">
+      <div class="view-header" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px;">
+        <div>
+          <h2 class="view-title">Listening History</h2>
+          <p class="view-subtitle">Your recently played tracks</p>
+        </div>
+      </div>
+      
+      <div class="track-view-container">
+        <div class="track-list" style="padding-top: 8px;">
+          ${items.length === 0 ? '<div style="padding: 24px; color: var(--text-muted); text-align: center;">No history recorded yet.</div>' : ''}
+          ${items.map((item, index) => {
+            const rawDate = item.played_at || ''
+            const dateStr = rawDate ? new Date(rawDate.replace(' ', 'T') + 'Z').toLocaleString([], {
+              day: '2-digit', month: '2-digit', year: 'numeric',
+              hour: '2-digit', minute: '2-digit'
+            }) : 'Unknown Time'
+            return `
+            <div class="track-item" style="cursor: pointer; display: grid; grid-template-columns: 40px 56px 1fr 180px; align-items: center; padding: 12px 16px; gap: 8px; border-radius: var(--radius-md);" data-uuid="${item.uuid}" data-index="${index}">
+              <div class="track-num">${index + 1}</div>
+              <div style="width: 48px; height: 48px; border-radius: var(--radius-sm); overflow: hidden; background: var(--glass); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+                ${item.cover ? `<img src="${item.cover}" style="width:100%; height:100%; object-fit:cover;">` : `<i data-lucide="music" style="color:var(--text-muted); width:20px; height:20px;"></i>`}
+              </div>
+              <div class="track-name-cell" style="overflow: hidden; padding-right: 16px;">
+                <div class="track-name" style="font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; color: var(--text-main);">${item.title || 'Unknown Title'}</div>
+                <div class="track-list-artist" style="font-size: 13px; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${item.artist || 'Unknown Artist'}</div>
+              </div>
+              <div style="display: flex; justify-content: flex-end;">
+                <span class="tag small" style="background: rgba(255, 255, 255, 0.05); color: var(--text-muted); padding: 4px 10px; font-size: 11px; font-weight: 600; border-radius: 6px; letter-spacing: 0.5px; border: 1px solid rgba(255, 255, 255, 0.05);">${dateStr}</span>
+              </div>
+            </div>
+            `
+          }).join('')}
+        </div>
+      </div>
+    </div>
+  `
+  
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  document.querySelectorAll('.track-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      const mouseEvent = e as MouseEvent
+      const index = parseInt(item.getAttribute('data-index')!)
+      const track = items[index]
+      const uuid = track.uuid
+
+      if (mouseEvent.metaKey || mouseEvent.ctrlKey) {
+        if (selectedTrackUuids.has(uuid)) {
+          selectedTrackUuids.delete(uuid)
+          item.classList.remove('selected')
+        } else {
+          selectedTrackUuids.add(uuid)
+          item.classList.add('selected')
+        }
+      } else {
+        if (!selectedTrackUuids.has(uuid)) {
+          document.querySelectorAll('.track-item.selected').forEach(i => i.classList.remove('selected'))
+          selectedTrackUuids.clear()
+          selectedTrackUuids.add(uuid)
+          item.classList.add('selected')
+        }
+        currentPlaylist = items
+        playTrack(index)
+      }
+      
+      // We must check if updateSidebarUI exists and run it
+      if (typeof updateSidebarUI === 'function') {
+        updateSidebarUI(track)
+      }
+    })
+  })
+}
+
 function renderStatistics(stats: any): void {
   contentView.innerHTML = `
     <div class="stats-view-scrollable">
@@ -1170,9 +1295,10 @@ function renderStatistics(stats: any): void {
             ${stats.topTracks.length > 0 ? stats.topTracks.map((track: any, index: number) => `
               <div class="track-item" style="cursor: default;" data-uuid="${track.uuid}">
                 <div class="track-num">${index + 1}</div>
-                <div class="track-name-cell">
+                <div class="track-name-cell" style="overflow: hidden;">
                   <div class="track-name">${track.title || 'Unknown Title'}</div>
                   <div class="track-list-artist">${track.artist || 'Unknown Artist'}</div>
+                  <div class="track-list-path" style="font-size: 10px; color: var(--text-muted); opacity: 0.6; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${track.filePath || ''}">${track.filePath || ''}</div>
                 </div>
                 <div class="track-album-cell" style="flex: 1; align-items: center; justify-content: flex-end; padding-right: 24px;">
                   <span class="tag small" style="background: var(--glass); color: var(--accent);">${track.playCount} Plays</span>
@@ -1240,13 +1366,31 @@ function playTrack(index: number): void {
   
   currentTrackIndex = index
   const track = currentPlaylist[index]
-  const fileUrl = track.filePath.startsWith('http') ? track.filePath : `file://${track.filePath}`
+  const safePath = track.filePath.split(/[\\/]/).map(encodeURIComponent).join('/')
+  const fileUrl = track.filePath.startsWith('http') ? track.filePath : `local://${safePath}`
 
   console.log('playTrack: Preparing track:', { index, title: track.title, url: fileUrl, isRadioMode })
 
-  // Record playback to statistics (Only for local library tracks)
   if (!isRadioMode && (window as any).api.recordPlay && track.uuid) {
     (window as any).api.recordPlay(track.uuid)
+  }
+
+  // Cleanup: if we were previously playing a YouTube video (iframe) and now switching formats, reset DOM
+  const ytIframe = document.getElementById('yt-iframe');
+  if (ytIframe && track.format !== 'youtube') {
+    const container = document.getElementById('video-overlay')!
+    container.innerHTML = `
+      <video id="video-player" controls></video>
+      <button id="btn-close-video" class="btn-icon circle"><i data-lucide="x"></i></button>
+    `
+    videoPlayer = document.getElementById('video-player') as HTMLVideoElement
+    btnCloseVideo = document.getElementById('btn-close-video')!
+    btnCloseVideo.onclick = () => {
+      videoPlayer.pause()
+      videoOverlay.classList.add('hidden')
+      audio.play()
+    }
+    if ((window as any).lucide) (window as any).lucide.createIcons()
   }
 
   if (track.format === 'youtube') {
@@ -1496,7 +1640,8 @@ async function loadSession(): Promise<void> {
         currentTrackIndex = trackIdx
         const track = library[trackIdx]
         
-        const fileUrl = `file://${track.filePath}`
+        const safePath = track.filePath.split(/[\\/]/).map(encodeURIComponent).join('/')
+        const fileUrl = track.filePath.startsWith('http') ? track.filePath : `local://${safePath}`
         audio.src = fileUrl
         
         updateSidebarUI(track)

@@ -1,0 +1,45 @@
+{
+  "stationuuid": "9a8933e9-4638-471b-bae8-aee0dd8f6f22",
+  "name": "Neon Midnight Club (NMC)",
+  "url": "https://ncm.pagefai.com/",
+  "favicon": "https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=400&h=400&fit=crop",
+  "tags": "rock, classic rock, hard rock, vinyl",
+  "country": "Brazil",
+  "countrycode": "BR",
+  "state": "SP",
+  "language": "english",
+  "votes": 0,
+  "codec": "MP3",
+  "bitrate": 320,
+  "hls": 0,
+  "lastcheckok": 1,
+  "tracks": [
+    {
+      "uuid": "acfabd55-106e-451e-a3d1-6c18433a279e",
+      "title": "Moon Era",
+      "artist": "Neon Midnight Club",
+      "album": "Moon Era",
+      "genre": "Eletronic, Synthwave, Future Bass",
+      "filePath": "https://nmc.pagefai.com/uploads/playlist-media-player/lesson-audio-lesson-1771206063022-699275af2c70a-2026-02-16-01-41.mp3",
+      "cover": "https://nmc.pagefai.com/uploads/playlist-media-player/lesson-img-lesson-1771206063022-699275af1c18b-2026-02-16-01-41.png"
+    },
+    {
+      "uuid": "3fd1baa4-5cb7-4c6a-ba74-26f6d7260821",
+      "title": "Life Invaders",
+      "artist": "Neon Midnight Club",
+      "album": "Moon Era",
+      "genre": "Eletronic, Synthwave, Future Bass",
+      "filePath": "https://nmc.pagefai.com/uploads/playlist-media-player/lesson-audio-lesson-1771173879686-6991f7f7c5922-2026-02-15-16-44.mp3",
+      "cover": "https://nmc.pagefai.com/uploads/playlist-media-player/lesson-img-lesson-1771173879686-6991f7f7b1bd7-2026-02-15-16-44.png"
+    },
+    {
+      "uuid": "3fd1baa4-5cb7-4c6a-ba74-26f6d7260821",
+      "title": "Ride this Wave",
+      "artist": "Neon Midnight Club",
+      "album": "Moon Era",
+      "genre": "Eletronic, Synthwave, Future Bass",
+      "filePath": "https://nmc.pagefai.com/uploads/playlist-media-player/lesson-audio-lesson-1771173740360-6991f76c73b34-2026-02-15-16-42.mp3",
+      "cover": "https://nmc.pagefai.com/uploads/playlist-media-player/lesson-img-lesson-1771173740360-6991f76c62f6d-2026-02-15-16-42.png"
+    }
+  ]
+}
