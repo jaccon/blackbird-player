@@ -1,0 +1,43 @@
+name: Release BlackBird
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Rebuild Native Modules
+        run: npx electron-builder install-app-deps
+
+      - name: Build and Publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            npm run build && npx electron-builder --mac --universal -c.mac.notarize=false
+          elif [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            npm run build && npx electron-builder --linux
+          else
+            npm run build && npx electron-builder --win
+          fi
+        shell: bash
