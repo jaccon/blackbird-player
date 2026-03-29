@@ -13,6 +13,11 @@ import * as http from 'http'
 protocol.registerSchemesAsPrivileged([
   { scheme: 'local', privileges: { secure: true, supportFetchAPI: true, bypassCSP: true, stream: true } }
 ])
+
+// YouTube Fix: Disable site isolation and allow autoplay
+app.commandLine.appendSwitch('disable-site-isolation-trials')
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
 const castClient = new ChromecastAPI()
 let castMediaServer: http.Server | null = null
 let castMediaPort = 0
@@ -43,11 +48,14 @@ function createWindow(): void {
 
   // Set Referer for YouTube Embeds in production
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
-    { urls: ['https://www.youtube.com/*', 'https://*.youtube.com/*', 'https://*.ytimg.com/*'] },
+    { urls: ['https://www.youtube.com/*', 'https://*.youtube.com/*', 'https://*.ytimg.com/*', 'https://*.youtube-nocookie.com/*'] },
     (details, callback) => {
-      details.requestHeaders['Referer'] = 'https://www.youtube.com/'
-      details.requestHeaders['Origin'] = 'https://www.youtube.com'
-      details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      const url = new URL(details.url)
+      const origin = url.hostname.includes('youtube-nocookie.com') ? 'https://www.youtube-nocookie.com' : 'https://www.youtube.com'
+      
+      details.requestHeaders['Referer'] = origin
+      details.requestHeaders['Origin'] = origin
+      details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
       callback({ cancel: false, requestHeaders: details.requestHeaders })
     }
   )
