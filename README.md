@@ -8,9 +8,11 @@ BlackBird is a sleek, modern, and locally-focused desktop media player built wit
 * **Smart Folder Import**: Select any local directory, and BlackBird will recursively scan and extract ID3 tags, album art, and durations automatically.
 * **YouTube Integration**: Paste a YouTube link to instantly fetch its metadata (oEmbed) and append it to your library. Play the video directly within BlackBird via an embedded player overlay.
 * **Automatic Metadata Extraction**: Automatically parses local files to extract `Title`, `Artist`, `Album`, `Duration`, and `Cover Art`.
+* **Custom `local://` Protocol**: High-performance local media streaming using a custom privileged protocol to bypass modern browser security restrictions.
 
 ### Library & Organization
 * **Smart Categories**: Your media is organized intelligently into `All Songs`, `Albums`, `Artists`, and `All Videos`.
+* **Playback History (New)**: A dedicated `History` tab to revisit your 100 most recently played tracks, showing thumbnails and precise local date/time of play.
 * **Playlists**: Create custom playlists, drag & drop your tracks into them seamlessly, and manage collections.
 * **Favorites System**: Instantly mark any track or video as a favorite (❤️) and access them all instantly in the `My Favorites` tab.
 * **Metadata Editor**: Click the inline "**Edit**" button (✏️) on any track to instantly update its `Title`, `Artist`, `Album`, `Kind`, `Description`, and upload custom `.JPG` `Artwork`.
@@ -18,6 +20,7 @@ BlackBird is a sleek, modern, and locally-focused desktop media player built wit
 
 ### Playback & Controls
 * **Universal Player**: Robust playing queue system supporting both local Audio/Video files and YouTube Web embeds simultaneously.
+* **Robust Error Handling**: Automatically detects if files were moved, renamed, or deleted. It visually flags "ghost" tracks and automatically skips to the next available song in your playlist.
 * **Playback Modes**: Intuitive playback controls with **Shuffle** and **Repeat** states (Repeat All tracks, Repeat One track).
 * **Multi-selection**: Hold `Cmd/Ctrl` or `Shift` combinations to select multiple consecutive or alternate tracks, build selections, and bulk delete contents from your database.
 
