@@ -2,6 +2,12 @@ import { app, shell, BrowserWindow, ipcMain, dialog, net, Menu, MenuItemConstruc
 import { join, basename } from 'path'
 import * as fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+
+// Handle uncaught exceptions to prevent app crash on network timeouts
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception in Main Process:', error)
+})
+
 import icon from '../../resources/icon.png?asset'
 import { getMetadata, scanDirectory } from './metadata'
 import { dbOps } from './database'
