@@ -31,7 +31,11 @@ const api = {
   getUserRadios: () => ipcRenderer.invoke('get-user-radios'),
   deleteUserRadio: (id: string) => ipcRenderer.invoke('delete-user-radio', id),
   fetchRemoteJson: (url: string) => ipcRenderer.invoke('fetch-remote-json', url),
-  getCastDevices: () => ipcRenderer.invoke('start-cast-scan')
+  getCastDevices: () => ipcRenderer.invoke('start-cast-scan'),
+  openPath: (folderPath: string) => ipcRenderer.invoke('open-path', folderPath),
+  getAppPaths: () => ipcRenderer.invoke('get-app-paths'),
+  exportSettings: () => ipcRenderer.invoke('export-settings'),
+  importSettings: () => ipcRenderer.invoke('import-settings')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

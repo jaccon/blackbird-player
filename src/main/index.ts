@@ -82,7 +82,7 @@ function createWindow(): void {
 app.setName('BlackBird')
 
 // Create default music folder for easy backup
-const defaultMusicDir = join(app.getPath('music'), 'BlackBird');
+const defaultMusicDir = join(app.getPath('home'), 'BlackBird');
 if (!fs.existsSync(defaultMusicDir)) {
   fs.mkdirSync(defaultMusicDir, { recursive: true });
 }
@@ -168,7 +168,7 @@ app.whenReady().then(() => {
                    
                    // Import Themes
                    if (importObject.themes && Array.isArray(importObject.themes)) {
-                      const themeDestDir = join(app.getPath('userData'), 'themes')
+                      const themeDestDir = join(app.getPath('home'), 'BlackBird', 'themes')
                       if (!fs.existsSync(themeDestDir)) {
                          fs.mkdirSync(themeDestDir, { recursive: true })
                       }
@@ -214,7 +214,7 @@ app.whenReady().then(() => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openFile', 'multiSelections'],
       filters: [
-        { name: 'Media', extensions: ['mp3', 'wav', 'ogg', 'mp4', 'webm'] }
+        { name: 'Media & Photos', extensions: ['mp3', 'wav', 'ogg', 'mp4', 'webm', 'jpg', 'jpeg', 'png', 'gif'] }
       ]
     })
     return canceled ? null : filePaths
@@ -232,7 +232,7 @@ app.whenReady().then(() => {
 
     try {
       const themePath = filePaths[0]
-      const themeDestDir = join(app.getPath('userData'), 'themes')
+      const themeDestDir = join(app.getPath('home'), 'BlackBird', 'themes')
       
       if (!fs.existsSync(themeDestDir)) {
         fs.mkdirSync(themeDestDir, { recursive: true })
@@ -389,6 +389,76 @@ app.whenReady().then(() => {
   ipcMain.handle('save-user-radio', (_, radio: any) => dbOps.saveUserRadio(radio))
   ipcMain.handle('get-user-radios', () => dbOps.getUserRadios())
   ipcMain.handle('delete-user-radio', (_, id: string) => dbOps.deleteUserRadio(id))
+  
+  ipcMain.handle('open-path', async (_, folderPath: string) => {
+    return await shell.openPath(folderPath)
+  })
+  ipcMain.handle('get-app-paths', async () => {
+    const baseConfigDir = join(app.getPath('home'), 'BlackBird');
+    return {
+      userData: baseConfigDir,
+      music: baseConfigDir,
+      db: join(baseConfigDir, 'blackbird.db'),
+      covers: join(baseConfigDir, 'covers'),
+      themes: join(baseConfigDir, 'themes')
+    }
+  })
+  
+  ipcMain.handle('export-settings', async () => {
+    const data = dbOps.getAllRaw()
+    const themes = dbOps.getThemes()
+    const exportObject = { ...data, themes }
+    
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: 'Export Settings',
+      defaultPath: 'blackbird-settings.json',
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+
+    if (!canceled && filePath) {
+      fs.writeFileSync(filePath, JSON.stringify(exportObject, null, 2))
+      return { success: true, filePath }
+    }
+    return { success: false }
+  })
+
+  ipcMain.handle('import-settings', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: 'Import Settings',
+      properties: ['openFile'],
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+
+    if (!canceled && filePaths.length > 0) {
+      try {
+        const fileContent = fs.readFileSync(filePaths[0], 'utf-8')
+        const importObject = JSON.parse(fileContent)
+        
+        // Import Themes
+        if (importObject.themes && Array.isArray(importObject.themes)) {
+          const themeDestDir = join(app.getPath('home'), 'BlackBird', 'themes')
+          if (!fs.existsSync(themeDestDir)) {
+            fs.mkdirSync(themeDestDir, { recursive: true })
+          }
+          for (const theme of importObject.themes) {
+            const safeFileName = `${theme.name}.json`.toLowerCase().replace(/\s+/g, '-')
+            fs.writeFileSync(join(themeDestDir, safeFileName), JSON.stringify(theme, null, 2))
+          }
+        }
+
+        // Import DB
+        const result = dbOps.importRaw(importObject)
+        if (result.success) {
+          return { success: true }
+        } else {
+          return { success: false, error: result.error }
+        }
+      } catch (e: any) {
+        return { success: false, error: e.message }
+      }
+    }
+    return { success: false }
+  })
   
   ipcMain.handle('fetch-remote-json', async (_, url: string) => {
     try {

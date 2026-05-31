@@ -62,7 +62,7 @@ let repeatMode: 'none' | 'one' | 'all' = 'all'
 let selectedTrackUuids: Set<string> = new Set()
 let lastTrackListView: TrackMetadata[] = []
 let sidebarTrack: TrackMetadata | null = null
-let lastListViewTitle: string = 'All Songs'
+let lastListViewTitle: string = 'Home'
 let currentRadioBeingViewed: any = null
 let isRadioMode = false
 
@@ -91,12 +91,16 @@ let btnNext: HTMLElement
 let btnPrev: HTMLElement
 let btnShuffle: HTMLElement
 let btnRepeat: HTMLElement
+let btnHome: HTMLElement
 let btnAllSongs: HTMLElement
 let btnAlbums: HTMLElement
 let btnArtists: HTMLElement
 let btnAllVideos: HTMLElement
 let btnFavorites: HTMLElement
+let btnPlaylistsScreen: HTMLElement
 let btnRadio: HTMLElement
+let btnPhotos: HTMLElement
+let btnSetup: HTMLElement
 let btnToggleFavorite: HTMLElement
 let playlistList: HTMLElement
 let btnNewPlaylist: HTMLElement
@@ -151,6 +155,9 @@ async function init(): Promise<void> {
     btnCloseVideo = document.getElementById('btn-close-video')!
     contentView = document.getElementById('content-view')!
 
+    // Assign new button
+    btnHome = document.getElementById('btn-home')!
+    // Existing assignments
     btnAddFolderHero = document.getElementById('btn-add-folder-hero')!
     playerTitle = document.getElementById('player-title')!
     playerArtist = document.getElementById('player-artist')!
@@ -173,10 +180,23 @@ async function init(): Promise<void> {
     btnArtists = document.getElementById('btn-artists')!
     btnAllVideos = document.getElementById('btn-all-videos')!
     btnFavorites = document.getElementById('btn-favorites')!
+    btnPlaylistsScreen = document.getElementById('btn-playlists-screen')!
     btnToggleFavorite = document.getElementById('btn-toggle-favorite')!
     playlistList = document.getElementById('playlist-list')!
     btnNewPlaylist = document.getElementById('btn-new-playlist')!
     btnRadio = document.getElementById('btn-radio')!
+    btnPhotos = document.getElementById('btn-photos')!
+    btnSetup = document.getElementById('btn-setup')!
+    btnCast = document.getElementById('btn-cast')!
+    themeSelector = document.getElementById('theme-selector') as HTMLSelectElement
+
+    // Home button listener
+    btnHome.addEventListener('click', () => {
+      selectedTrackUuids.clear()
+      setActiveNav('btn-home')
+      renderHome()
+    })
+
     modalContainer = document.getElementById('modal-container')!
     playlistModal = document.getElementById('playlist-modal')!
     editModal = document.getElementById('edit-modal')!
@@ -199,6 +219,27 @@ async function init(): Promise<void> {
     inputEditArtwork = document.getElementById('edit-artwork-input') as HTMLInputElement
     previewEditArtwork = document.getElementById('edit-artwork-preview')!
 
+    btnPhotos = document.getElementById('btn-photos')!
+    // Photos button click – show image files
+    btnPhotos.addEventListener('click', () => {
+      selectedTrackUuids.clear()
+      setActiveNav('btn-photos')
+      renderPhotosView()
+    })
+    
+    // Playlists button click - show Playlists screen
+    btnPlaylistsScreen.addEventListener('click', () => {
+      selectedTrackUuids.clear()
+      setActiveNav('btn-playlists-screen')
+      renderPlaylistsScreen()
+    })
+    
+    // Setup button click - show Setup screen
+    btnSetup.addEventListener('click', () => {
+      selectedTrackUuids.clear()
+      setActiveNav('btn-setup')
+      renderSetupScreen()
+    })
     btnRadio = document.getElementById('btn-radio')!
     radioModal = document.getElementById('radio-modal')!
     inputRadioName = document.getElementById('radio-name') as HTMLInputElement
@@ -255,12 +296,12 @@ async function init(): Promise<void> {
 
     attachListeners()
     updateVolume(80)
-    loadPlaylists()
-    setupThemes()
-    loadLibrary()
+    await loadPlaylists()
+    await setupThemes()
+    await loadLibrary()
     attachGlobalKeyboardListeners()
     attachGlobalClickDelegation() 
-    loadSession() 
+    await loadSession() 
     
     // Save on close
     window.addEventListener('beforeunload', () => saveSession())
@@ -272,9 +313,14 @@ async function init(): Promise<void> {
 async function loadLibrary(): Promise<void> {
   library = await (window as any).api.getLibrary()
   if (library.length > 0) {
-    currentPlaylist = [...library]
-    renderTrackList(library)
+    const filtered = library.filter(t => {
+      const fmt = (t.format || '').toLowerCase();
+      return fmt.includes('mp3') || fmt.includes('ogg');
+    });
+    currentPlaylist = [...filtered];
+    renderHome();
   } else {
+    setActiveNav('btn-home')
     contentView.innerHTML = `
       <div class="welcome-screen">
         <h2>No Music Found</h2>
@@ -396,10 +442,14 @@ function attachListeners(): void {
   btnRepeat.addEventListener('click', toggleRepeat)
   
   btnAllSongs.addEventListener('click', () => {
-    selectedTrackUuids.clear()
-    setActiveNav('btn-all-songs')
-    renderTrackList(library)
-  })
+    selectedTrackUuids.clear();
+    setActiveNav('btn-all-songs');
+    const filtered = library.filter(t => {
+      const fmt = (t.format || '').toLowerCase();
+      return fmt.includes('mp3') || fmt.includes('ogg');
+    });
+    renderTrackList(filtered, 'Musics');
+  });
   btnAlbums.addEventListener('click', () => {
     selectedTrackUuids.clear()
     setActiveNav('btn-albums')
@@ -840,7 +890,790 @@ async function handleSaveYoutube(): Promise<void> {
 
 
 
-function renderTrackList(tracks: TrackMetadata[], title = 'All Songs'): void {
+async function renderHome(): Promise<void> {
+  setActiveNav('btn-home')
+  // 1. Get recently played tracks (up to 10) from play history
+  let recentlyPlayed: any[] = []
+  try {
+    const historyItems = await (window as any).api.getPlayHistory()
+    // The history contains duplicate plays, let's keep only unique track UUIDs but in order of latest play
+    const uniqueUuids = new Set<string>()
+    const uniquePlayed: any[] = []
+    for (const item of historyItems) {
+      if (!uniqueUuids.has(item.uuid)) {
+        uniqueUuids.add(item.uuid)
+        uniquePlayed.push(item)
+        if (uniquePlayed.length >= 10) break
+      }
+    }
+    recentlyPlayed = uniquePlayed
+  } catch (e) {
+    console.error('Failed to load home play history:', e)
+  }
+
+  // 2. Get recently added media tracks (up to 10) from the library (excluding images)
+  const mediaOnly = library.filter(t => {
+    const fmt = (t.format || '').toLowerCase()
+    return !['jpg', 'jpeg', 'png', 'gif'].includes(fmt)
+  })
+  // slice(-10) gets the last 10, reverse() puts newest first
+  const recentlyAdded = mediaOnly.slice(-10).reverse()
+
+  // Update navigation title state
+  lastListViewTitle = 'Home'
+
+  let playedHtml = ''
+  if (recentlyPlayed.length === 0) {
+    playedHtml = `
+      <div style="padding: 32px; color: var(--text-muted); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px;">
+        <i data-lucide="clock" style="width: 32px; height: 32px; opacity: 0.5;"></i>
+        <p style="font-size: 13px;">No listening history recorded yet.</p>
+      </div>
+    `
+  } else {
+    playedHtml = recentlyPlayed.map((track, idx) => `
+      <div class="dashboard-track-item recently-played-item" data-index="${idx}" data-uuid="${track.uuid}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; margin-bottom: 8px; border: 1px solid transparent;">
+        <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; flex: 1;">
+          <div style="width: 40px; height: 40px; border-radius: var(--radius-sm); overflow: hidden; background: var(--glass); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">
+            ${track.cover ? `<img src="${track.cover}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<i data-lucide="music" style="color: var(--text-muted); width: 18px;"></i>`}
+          </div>
+          <div style="overflow: hidden; padding-right: 8px;">
+            <div style="font-size: 14px; font-weight: 600; color: var(--text-main); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.title || track.fileName || 'Unknown Title'}</div>
+            <div style="font-size: 12px; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.artist || 'Unknown Artist'}</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
+          <span style="font-size: 12px; color: var(--text-muted); font-family: monospace;">${formatTime(track.duration || 0)}</span>
+          <button class="btn-icon circle-small btn-play-dashboard" style="background: var(--accent-hover); color: #fff; border: none; opacity: 0; transition: all 0.2s;">
+            <i data-lucide="play" style="width: 12px; height: 12px; fill: currentColor;"></i>
+          </button>
+        </div>
+      </div>
+    `).join('')
+  }
+
+  let addedHtml = ''
+  if (recentlyAdded.length === 0) {
+    addedHtml = `
+      <div style="padding: 32px; color: var(--text-muted); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px;">
+        <i data-lucide="folder-plus" style="width: 32px; height: 32px; opacity: 0.5;"></i>
+        <p style="font-size: 13px;">Your library is empty. Import some media!</p>
+      </div>
+    `
+  } else {
+    addedHtml = recentlyAdded.map((track, idx) => `
+      <div class="dashboard-track-item recently-added-item" data-index="${idx}" data-uuid="${track.uuid}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; margin-bottom: 8px; border: 1px solid transparent;">
+        <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; flex: 1;">
+          <div style="width: 40px; height: 40px; border-radius: var(--radius-sm); overflow: hidden; background: var(--glass); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">
+            ${track.cover ? `<img src="${track.cover}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<i data-lucide="music" style="color: var(--text-muted); width: 18px;"></i>`}
+          </div>
+          <div style="overflow: hidden; padding-right: 8px;">
+            <div style="font-size: 14px; font-weight: 600; color: var(--text-main); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.title || track.fileName || 'Unknown Title'}</div>
+            <div style="font-size: 12px; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.artist || 'Unknown Artist'}</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
+          <span style="font-size: 12px; color: var(--text-muted); font-family: monospace;">${formatTime(track.duration || 0)}</span>
+          <button class="btn-icon circle-small btn-play-dashboard" style="background: var(--accent-hover); color: #fff; border: none; opacity: 0; transition: all 0.2s;">
+            <i data-lucide="play" style="width: 12px; height: 12px; fill: currentColor;"></i>
+          </button>
+        </div>
+      </div>
+    `).join('')
+  }
+
+  contentView.innerHTML = `
+    <div class="home-view">
+      <div class="view-header" style="margin-bottom: 24px;">
+        <h2 class="view-title">Home</h2>
+        <p class="view-subtitle">Welcome back to your music dashboard</p>
+      </div>
+
+      <div class="home-dashboard" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; overflow-y: auto; max-height: calc(100vh - 250px); padding-right: 8px;">
+        <!-- Left Column: Recently Played -->
+        <div class="dashboard-section" style="background: var(--glass); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 20px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 16px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+            <i data-lucide="clock" style="width: 18px; height: 18px;"></i> Recently Played
+          </h3>
+          <div class="home-track-list" id="home-recently-played-list">
+            ${playedHtml}
+          </div>
+        </div>
+
+        <!-- Right Column: Recently Added -->
+        <div class="dashboard-section" style="background: var(--glass); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 20px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 16px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+            <i data-lucide="folder-plus" style="width: 18px; height: 18px;"></i> Recently Added
+          </h3>
+          <div class="home-track-list" id="home-recently-added-list">
+            ${addedHtml}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <style>
+      .dashboard-track-item {
+        border-radius: var(--radius-md);
+      }
+      .dashboard-track-item:hover {
+        background: rgba(255, 255, 255, 0.04);
+        border-color: rgba(255, 255, 255, 0.05);
+      }
+      .dashboard-track-item:hover .btn-play-dashboard {
+        opacity: 1 !important;
+        transform: scale(1.05);
+      }
+    </style>
+  `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  // Setup click listeners for playback
+  document.querySelectorAll('.recently-played-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const idx = parseInt(item.getAttribute('data-index')!)
+      const track = recentlyPlayed[idx]
+      if (track) {
+        currentPlaylist = recentlyPlayed
+        playTrack(idx)
+      }
+    })
+  })
+
+  document.querySelectorAll('.recently-added-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const idx = parseInt(item.getAttribute('data-index')!)
+      const track = recentlyAdded[idx]
+      if (track) {
+        currentPlaylist = recentlyAdded
+        playTrack(idx)
+      }
+    })
+  })
+}
+
+async function handleDeletePhoto(uuid: string): Promise<void> {
+  if (confirm('Are you sure you want to delete this photo from your library?')) {
+    await (window as any).api.deleteTracks([uuid])
+    await loadLibrary()
+    if (document.getElementById('btn-photos')?.classList.contains('active')) {
+      renderPhotosView()
+    }
+  }
+}
+;(window as any).handleDeletePhoto = handleDeletePhoto
+
+function renderPhotosView(): void {
+  const images = library.filter(t => {
+    const fmt = (t.format || '').toLowerCase()
+    return ['jpg', 'jpeg', 'png', 'gif'].includes(fmt)
+  })
+
+  let contentHtml = ''
+  if (images.length === 0) {
+    contentHtml = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: var(--text-muted); gap: 16px;">
+        <i data-lucide="image" style="width: 48px; height: 48px; opacity: 0.5;"></i>
+        <p>No photos imported yet. Scan a folder or import images to see them here.</p>
+      </div>
+    `
+  } else {
+    const gridItems = images.map((img, idx) => {
+      const safePath = encodeURI(img.filePath.replace(/\\/g, '/')).replace(/#/g, '%23').replace(/\?/g, '%3F')
+      const imgUrl = `local://${safePath}`
+      return `
+        <div class="photo-card" data-index="${idx}" data-uuid="${img.uuid}" style="position: relative; border-radius: 12px; overflow: hidden; background: var(--glass); border: 1px solid rgba(255,255,255,0.08); aspect-ratio: 1; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 4px 30px rgba(0,0,0,0.2);">
+          <img src="${imgUrl}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s ease;" />
+          <div class="photo-overlay" style="position: absolute; inset: 0; background: rgba(0,0,0,0.6); opacity: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 12px; transition: opacity 0.3s ease; backdrop-filter: blur(2px);">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 10px; background: rgba(255,255,255,0.15); color: #fff; padding: 2px 6px; border-radius: 6px; text-transform: uppercase; font-weight: 600;">${img.format || 'IMG'}</span>
+              <button class="btn-delete-photo btn-icon circle-small" style="background: rgba(255,75,75,0.2); border: none; color: #ff4b4b; cursor: pointer; transition: all 0.2s;" onclick="event.stopPropagation(); window.handleDeletePhoto('${img.uuid}')">
+                <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+              </button>
+            </div>
+            <div class="photo-details">
+              <div style="font-size: 12px; font-weight: 600; color: #fff; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${img.title || img.fileName}</div>
+              <div style="font-size: 10px; color: rgba(255,255,255,0.6); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${img.filePath}">${img.filePath}</div>
+            </div>
+          </div>
+        </div>
+      `
+    }).join('')
+
+    contentHtml = `
+      <div class="photo-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px;">
+        ${gridItems}
+      </div>
+    `
+  }
+
+  contentView.innerHTML = `
+    <div class="photo-list-view">
+      <div class="view-header" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px;">
+        <div>
+          <h2 class="view-title">Photos</h2>
+          <p class="view-subtitle">${images.length} pictures available</p>
+        </div>
+      </div>
+      
+      <div class="photo-view-container" style="overflow-y: auto; max-height: calc(100vh - 250px); padding-right: 8px;">
+        ${contentHtml}
+      </div>
+    </div>
+
+    <style>
+      .photo-card:hover {
+        transform: translateY(-4px) scale(1.02);
+        border-color: rgba(255, 255, 255, 0.2) !important;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4) !important;
+      }
+      .photo-card:hover img {
+        transform: scale(1.08);
+      }
+      .photo-card:hover .photo-overlay {
+        opacity: 1 !important;
+      }
+      .btn-delete-photo:hover {
+        transform: scale(1.1);
+        background: rgba(255,75,75,0.4) !important;
+      }
+      .lightbox-btn {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #fff;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .lightbox-btn:hover {
+        background: rgba(255, 255, 255, 0.15);
+        transform: scale(1.1);
+      }
+      .lightbox-close {
+        position: absolute;
+        top: 24px;
+        right: 24px;
+      }
+      .lightbox-arrow-left {
+        position: absolute;
+        left: 32px;
+      }
+      .lightbox-arrow-right {
+        position: absolute;
+        right: 32px;
+      }
+    </style>
+  `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  // Setup Lightbox Listeners
+  let activeIndex = -1
+  const cards = document.querySelectorAll('.photo-card')
+  
+  const showLightbox = (index: number) => {
+    activeIndex = index
+    const img = images[activeIndex]
+    if (!img) return
+
+    let lightbox = document.getElementById('photo-lightbox')
+    if (!lightbox) {
+      lightbox = document.createElement('div')
+      lightbox.id = 'photo-lightbox'
+      lightbox.style.cssText = `
+        position: fixed;
+        inset: 0;
+        background: rgba(10, 10, 12, 0.95);
+        backdrop-filter: blur(15px);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      `
+      document.body.appendChild(lightbox)
+    }
+
+    const safePath = encodeURI(img.filePath.replace(/\\/g, '/')).replace(/#/g, '%23').replace(/\?/g, '%3F')
+    const imgUrl = `local://${safePath}`
+
+    let navButtons = ''
+    if (images.length > 1) {
+      navButtons = `
+        <button class="lightbox-btn lightbox-arrow-left" id="btn-prev-photo">
+          <i data-lucide="chevron-left"></i>
+        </button>
+        <button class="lightbox-btn lightbox-arrow-right" id="btn-next-photo">
+          <i data-lucide="chevron-right"></i>
+        </button>
+      `
+    }
+
+    lightbox.innerHTML = `
+      <button class="lightbox-btn lightbox-close" id="btn-close-lightbox">
+        <i data-lucide="x"></i>
+      </button>
+      
+      ${navButtons}
+      
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 16px; width: 80%; max-width: 80vw;">
+        <img src="${imgUrl}" style="max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); transform: scale(0.95); transition: transform 0.3s ease;" id="lightbox-img" />
+        <div style="text-align: center; color: #fff;">
+          <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">${img.title || img.fileName}</h3>
+          <p style="font-size: 12px; color: rgba(255,255,255,0.5); font-family: monospace;">${img.filePath}</p>
+        </div>
+      </div>
+    `
+    
+    lightbox.style.display = 'flex'
+    // Force reflow
+    lightbox.offsetHeight
+    lightbox.style.opacity = '1'
+    setTimeout(() => {
+      const imgEl = document.getElementById('lightbox-img')
+      if (imgEl) imgEl.style.transform = 'scale(1)'
+    }, 50)
+
+    if ((window as any).lucide) (window as any).lucide.createIcons()
+
+    // Add events
+    document.getElementById('btn-close-lightbox')?.addEventListener('click', () => {
+      lightbox!.style.opacity = '0'
+      const imgEl = document.getElementById('lightbox-img')
+      if (imgEl) imgEl.style.transform = 'scale(0.95)'
+      setTimeout(() => {
+        lightbox!.style.display = 'none'
+      }, 300)
+    })
+
+    document.getElementById('btn-prev-photo')?.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const prevIdx = (activeIndex - 1 + images.length) % images.length
+      showLightbox(prevIdx)
+    })
+
+    document.getElementById('btn-next-photo')?.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const nextIdx = (activeIndex + 1) % images.length
+      showLightbox(nextIdx)
+    })
+  }
+
+  cards.forEach(card => {
+    card.addEventListener('click', () => {
+      const idx = parseInt(card.getAttribute('data-index')!)
+      showLightbox(idx)
+    })
+  })
+}
+
+async function handlePlayPlaylist(id: string): Promise<void> {
+  const pl = userPlaylists.find(p => p.id === id)
+  if (!pl) return
+  const tracks = await window.api.getPlaylistTracks(id)
+  if (tracks.length > 0) {
+    currentPlaylist = tracks
+    playTrack(0)
+  } else {
+    alert('This playlist is empty. Drag and drop tracks onto it from Musics to add songs!')
+  }
+}
+;(window as any).handlePlayPlaylist = handlePlayPlaylist
+
+async function handleDeletePlaylistCard(id: string): Promise<void> {
+  const pl = userPlaylists.find(p => p.id === id)
+  if (!pl) return
+  if (confirm(`Are you sure you want to delete the playlist "${pl.name}"?`)) {
+    await window.api.deletePlaylist(id)
+    await loadPlaylists()
+    if (document.getElementById('btn-playlists-screen')?.classList.contains('active')) {
+      renderPlaylistsScreen()
+    }
+  }
+}
+;(window as any).handleDeletePlaylistCard = handleDeletePlaylistCard
+
+async function renderSetupScreen(): Promise<void> {
+  // Update navigation state
+  lastListViewTitle = 'Setup'
+
+  let paths = {
+    userData: 'Loading...',
+    music: 'Loading...',
+    db: 'Loading...',
+    covers: 'Loading...',
+    themes: 'Loading...'
+  }
+
+  try {
+    paths = await (window as any).api.getAppPaths()
+  } catch (e) {
+    console.error('Failed to get app paths:', e)
+  }
+
+  contentView.innerHTML = `
+    <div class="setup-view" style="max-height: calc(100vh - 200px); overflow-y: auto; padding-right: 8px;">
+      <div class="view-header" style="margin-bottom: 28px;">
+        <h2 class="view-title">Setup & Configuration</h2>
+        <p class="view-subtitle">Manage paths, media storage, databases, and backup files for BlackBird</p>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr; gap: 24px;">
+        
+        <!-- Section 1: Storage Folders -->
+        <div style="background: var(--glass); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 18px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+            <i data-lucide="folder" style="width: 18px; height: 18px;"></i> Media Storage & Import Folders
+          </h3>
+          
+          <div style="display: flex; flex-direction: column; gap: 20px;">
+            
+            <!-- Default Files Folder -->
+            <div style="display: flex; flex-direction: column; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">Default Files Folder</div>
+                  <div style="font-size: 12px; color: var(--text-muted);">This is where local media files and photos are automatically scanned and indexed by default.</div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <button class="btn-primary" id="btn-sync-folder" style="display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 12px; font-weight: 600; border: none; cursor: pointer;">
+                    <i data-lucide="refresh-cw" id="icon-sync" style="width: 14px; height: 14px;"></i> Sync Folder
+                  </button>
+                  <button class="btn-secondary btn-open-path" data-path="${paths.music}" style="display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 12px; font-weight: 600;">
+                    <i data-lucide="folder-open" style="width: 14px; height: 14px;"></i> Open in Finder
+                  </button>
+                </div>
+              </div>
+              <div style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.15); padding: 8px 12px; border-radius: 8px; color: var(--text-muted); word-break: break-all; border: 1px solid rgba(255,255,255,0.02);">${paths.music}</div>
+            </div>
+            
+            <!-- Covers Directory -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">Covers Cache Directory</div>
+                  <div style="font-size: 12px; color: var(--text-muted);">Local folder where album art images extracted from media files are cached.</div>
+                </div>
+                <button class="btn-secondary btn-open-path" data-path="${paths.covers}" style="display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 12px; font-weight: 600;">
+                  <i data-lucide="folder-open" style="width: 14px; height: 14px;"></i> Open in Finder
+                </button>
+              </div>
+              <div style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.15); padding: 8px 12px; border-radius: 8px; color: var(--text-muted); word-break: break-all; border: 1px solid rgba(255,255,255,0.02);">${paths.covers}</div>
+            </div>
+            
+          </div>
+        </div>
+
+        <!-- Section 2: Configuration & Database -->
+        <div style="background: var(--glass); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 18px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+            <i data-lucide="settings" style="width: 18px; height: 18px;"></i> App Settings & Database files
+          </h3>
+          
+          <div style="display: flex; flex-direction: column; gap: 20px;">
+            
+            <!-- SQLite Database File -->
+            <div style="display: flex; flex-direction: column; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">SQLite Database File (blackbird.db)</div>
+                  <div style="font-size: 12px; color: var(--text-muted);">Database containing track data, playlists structure, listening history, and statistics.</div>
+                </div>
+                <button class="btn-secondary btn-open-path" data-path="${paths.userData}" style="display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 12px; font-weight: 600;">
+                  <i data-lucide="database" style="width: 14px; height: 14px;"></i> Open DB Location
+                </button>
+              </div>
+              <div style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.15); padding: 8px 12px; border-radius: 8px; color: var(--text-muted); word-break: break-all; border: 1px solid rgba(255,255,255,0.02);">${paths.db}</div>
+            </div>
+            
+            <!-- UserData Directory -->
+            <div style="display: flex; flex-direction: column; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">User Configuration Directory</div>
+                  <div style="font-size: 12px; color: var(--text-muted);">This is the core directory where all BlackBird configurations, logs, and cache folders are saved.</div>
+                </div>
+                <button class="btn-secondary btn-open-path" data-path="${paths.userData}" style="display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 12px; font-weight: 600;">
+                  <i data-lucide="folder-open" style="width: 14px; height: 14px;"></i> Open Folder
+                </button>
+              </div>
+              <div style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.15); padding: 8px 12px; border-radius: 8px; color: var(--text-muted); word-break: break-all; border: 1px solid rgba(255,255,255,0.02);">${paths.userData}</div>
+            </div>
+
+            <!-- Themes Directory -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">Personalized Themes Folder</div>
+                  <div style="font-size: 12px; color: var(--text-muted);">Folder where manually imported themes or custom JSON styles are loaded from.</div>
+                </div>
+                <button class="btn-secondary btn-open-path" data-path="${paths.themes}" style="display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 12px; font-weight: 600;">
+                  <i data-lucide="palette" style="width: 14px; height: 14px;"></i> Open Folder
+                </button>
+              </div>
+              <div style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.15); padding: 8px 12px; border-radius: 8px; color: var(--text-muted); word-break: break-all; border: 1px solid rgba(255,255,255,0.02);">${paths.themes}</div>
+            </div>
+            
+          </div>
+        </div>
+
+        <!-- Section 3: Backup & Info -->
+        <div style="background: var(--glass); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 12px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+            <i data-lucide="info" style="width: 18px; height: 18px;"></i> Backups & Settings Management
+          </h3>
+          <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px;">
+            BlackBird supports exporting and importing all your settings, custom themes, playlists structure, and library index directly.
+          </p>
+          <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 16px; flex: 1; min-width: 240px; display: flex; flex-direction: column; justify-content: space-between; gap: 12px;">
+              <div>
+                <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px; color: var(--text-main); display: flex; align-items: center; gap: 6px;"><i data-lucide="download" style="width: 16px;"></i> Backup Data</div>
+                <div style="font-size: 12px; color: var(--text-muted);">Saves your database and theme settings into a single backup JSON file.</div>
+              </div>
+              <button class="btn-primary" id="btn-export-settings" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px; border-radius: 10px; font-weight: 600; border: none; cursor: pointer;">
+                <i data-lucide="download" style="width: 16px;"></i> Export Backup
+              </button>
+            </div>
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 16px; flex: 1; min-width: 240px; display: flex; flex-direction: column; justify-content: space-between; gap: 12px;">
+              <div>
+                <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px; color: var(--text-main); display: flex; align-items: center; gap: 6px;"><i data-lucide="upload" style="width: 16px;"></i> Restore Data</div>
+                <div style="font-size: 12px; color: var(--text-muted);">Restores settings, custom playlists, and library index from a JSON backup file.</div>
+              </div>
+              <button class="btn-secondary" id="btn-import-settings" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px; border-radius: 10px; font-weight: 600; cursor: pointer;">
+                <i data-lucide="upload" style="width: 16px;"></i> Import Backup
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <style>
+      @keyframes spin {
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      .spinning {
+        animation: spin 1s linear infinite !important;
+      }
+    </style>
+  `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  // Setup click listener for Sync Folder button
+  document.getElementById('btn-sync-folder')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-sync-folder') as HTMLButtonElement
+    const icon = document.getElementById('icon-sync')
+    if (!btn || !icon || btn.disabled) return
+
+    btn.disabled = true
+    btn.style.opacity = '0.7'
+    const btnText = btn.lastChild as Text
+    const originalText = btnText.textContent
+    btnText.textContent = ' Syncing...'
+    icon.classList.add('spinning')
+
+    try {
+      const result = await (window as any).api.scanFolder(paths.music)
+      if (result && result.error) {
+        alert(`Error during synchronization: ${result.error}`)
+      } else {
+        await loadLibrary()
+        alert('Folder synchronized successfully! All local tracks and photos have been updated.')
+      }
+    } catch (e) {
+      console.error('Failed to sync folder:', e)
+      alert('An unexpected error occurred during synchronization.')
+    } finally {
+      btn.disabled = false
+      btn.style.opacity = '1'
+      btnText.textContent = originalText
+      icon.classList.remove('spinning')
+    }
+  })
+
+  // Setup click listeners for Reveal buttons
+  document.querySelectorAll('.btn-open-path').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const folderPath = btn.getAttribute('data-path')!
+      if (folderPath && folderPath !== 'Loading...') {
+        try {
+          await (window as any).api.openPath(folderPath)
+        } catch (e) {
+          console.error('Failed to open path:', e)
+          alert('Failed to open directory.')
+        }
+      }
+    })
+  })
+
+  // Setup click listener for Export Backup button
+  document.getElementById('btn-export-settings')?.addEventListener('click', async () => {
+    try {
+      const res = await (window as any).api.exportSettings()
+      if (res && res.success) {
+        alert(`Backup exported successfully to:\n${res.filePath}`)
+      }
+    } catch (e) {
+      console.error('Failed to export settings:', e)
+      alert('Failed to export backup data.')
+    }
+  })
+
+  // Setup click listener for Import Backup button
+  document.getElementById('btn-import-settings')?.addEventListener('click', async () => {
+    try {
+      if (confirm('Importing a backup will overwrite your current library, playlists, and statistics. Do you want to proceed?')) {
+        const res = await (window as any).api.importSettings()
+        if (res && res.success) {
+          alert('Backup imported successfully! The application will now reload to apply all settings.')
+          location.reload()
+        } else if (res && res.error) {
+          alert(`Import failed: ${res.error}`)
+        }
+      }
+    } catch (e) {
+      console.error('Failed to import settings:', e)
+      alert('Failed to import backup data.')
+    }
+  })
+}
+
+function renderPlaylistsScreen(): void {
+  // Update navigation state
+  lastListViewTitle = 'Playlists'
+
+  let contentHtml = ''
+  if (userPlaylists.length === 0) {
+    contentHtml = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 350px; color: var(--text-muted); gap: 16px;">
+        <i data-lucide="list-music" style="width: 48px; height: 48px; opacity: 0.5;"></i>
+        <p>No playlists created yet. Create a playlist to start organizing your library!</p>
+        <button class="btn-primary" id="btn-create-playlist-empty" style="padding: 10px 20px; border-radius: 20px; border: none; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+          <i data-lucide="plus" style="width: 16px; height: 16px;"></i> Create Playlist
+        </button>
+      </div>
+    `
+  } else {
+    const gridItems = userPlaylists.map((pl) => {
+      const charCode = pl.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+      const gradients = [
+        'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+        'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+        'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+        'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)',
+        'linear-gradient(135deg, #ec4899 0%, #be185d 100%)',
+        'linear-gradient(135deg, #06b6d4 0%, #0891b2 100%)'
+      ]
+      const gradient = gradients[charCode % gradients.length]
+
+      return `
+        <div class="playlist-card" data-id="${pl.id}" style="position: relative; border-radius: 16px; overflow: hidden; background: var(--glass); border: 1px solid rgba(255,255,255,0.06); padding: 16px; display: flex; flex-direction: column; gap: 12px; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 4px 30px rgba(0,0,0,0.15);">
+          <div style="width: 100%; aspect-ratio: 16/10; border-radius: 12px; background: ${gradient}; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.25);">
+            <i data-lucide="list-music" style="width: 48px; height: 48px; color: #fff; opacity: 0.95; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3));"></i>
+            
+            <button class="btn-play-pl-card btn-icon circle" data-id="${pl.id}" style="position: absolute; bottom: 12px; right: 12px; background: var(--accent); color: #fff; border: none; opacity: 0; transform: translateY(8px); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); z-index: 10;" onclick="event.stopPropagation(); window.handlePlayPlaylist('${pl.id}')">
+              <i data-lucide="play" style="width: 18px; height: 18px; fill: currentColor;"></i>
+            </button>
+          </div>
+          
+          <div style="display: flex; flex-direction: column; gap: 4px; padding: 0 4px;">
+            <div style="font-size: 15px; font-weight: 700; color: var(--text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${pl.name}</div>
+            <div style="font-size: 12px; color: var(--text-muted); display: flex; align-items: center; justify-content: space-between;">
+              <span>${pl.trackCount || 0} tracks</span>
+              <span style="font-variant-numeric: tabular-nums;">${pl.totalDuration ? formatTime(pl.totalDuration) : '0:00'}</span>
+            </div>
+          </div>
+          
+          <button class="btn-delete-pl-card btn-icon circle-small" data-id="${pl.id}" style="position: absolute; top: 12px; right: 12px; background: rgba(255,75,75,0.15); border: none; color: #ff4b4b; opacity: 0; transition: all 0.2s;" onclick="event.stopPropagation(); window.handleDeletePlaylistCard('${pl.id}')">
+            <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+          </button>
+        </div>
+      `
+    }).join('')
+
+    contentHtml = `
+      <div class="playlist-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px;">
+        ${gridItems}
+      </div>
+    `
+  }
+
+  contentView.innerHTML = `
+    <div class="playlists-view">
+      <div class="view-header" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 28px;">
+        <div>
+          <h2 class="view-title">Playlists</h2>
+          <p class="view-subtitle">${userPlaylists.length} custom collections</p>
+        </div>
+        <button class="btn-primary" id="btn-create-playlist-top" style="padding: 10px 20px; border-radius: 20px; border: none; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+          <i data-lucide="plus" style="width: 16px; height: 16px;"></i> Create Playlist
+        </button>
+      </div>
+      
+      <div class="playlists-view-container" style="overflow-y: auto; max-height: calc(100vh - 250px); padding-right: 8px;">
+        ${contentHtml}
+      </div>
+    </div>
+
+    <style>
+      .playlist-card:hover {
+        transform: translateY(-6px);
+        border-color: rgba(255, 255, 255, 0.15) !important;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35) !important;
+      }
+      .playlist-card:hover .btn-play-pl-card {
+        opacity: 1 !important;
+        transform: translateY(0) scale(1) !important;
+      }
+      .playlist-card:hover .btn-delete-pl-card {
+        opacity: 1 !important;
+      }
+      .btn-play-pl-card:hover {
+        transform: scale(1.1) !important;
+      }
+      .btn-delete-pl-card:hover {
+        transform: scale(1.1) !important;
+        background: rgba(255,75,75,0.3) !important;
+      }
+    </style>
+  `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  document.querySelectorAll('.playlist-card').forEach(card => {
+    card.addEventListener('click', async () => {
+      const id = card.getAttribute('data-id')!
+      const pl = userPlaylists.find(p => p.id === id)
+      if (pl) {
+        selectedTrackUuids.clear()
+        const tracks = await window.api.getPlaylistTracks(id)
+        renderTrackList(tracks, `Playlist: ${pl.name}`)
+      }
+    })
+  })
+
+  document.getElementById('btn-create-playlist-top')?.addEventListener('click', () => {
+    btnNewPlaylist.click()
+  })
+  document.getElementById('btn-create-playlist-empty')?.addEventListener('click', () => {
+    btnNewPlaylist.click()
+  })
+}
+
+function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): void {
   // If we already have a sidebarTrack, try to keep it if it's in the list
   if (sidebarTrack) {
     const found = tracks.find(t => t.uuid === sidebarTrack?.uuid)

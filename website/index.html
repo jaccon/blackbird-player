@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlackBird | Modern Media Player</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg: #050505;
+            --bg-card: #121212;
+            --accent: #3d5afe;
+            --accent-glow: rgba(61, 90, 254, 0.4);
+            --text-main: #ffffff;
+            --text-muted: #a0a0a0;
+            --glass: rgba(255, 255, 255, 0.03);
+            --border: rgba(255, 255, 255, 0.1);
+            --radius: 16px;
+            transition: --accent 1s, --accent-glow 1s;
+            /* Not standard yet but good for main variables */
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Outfit', sans-serif;
+            transition: color 1s, border-color 1s, background-color 1s, box-shadow 1s;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text-main);
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+
+        /* Ambient Glow */
+        .glow {
+            position: fixed;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            top: -200px;
+            right: -200px;
+            z-index: -1;
+            filter: blur(80px);
+            opacity: 0.5;
+        }
+
+        .glow-bottom {
+            position: fixed;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            bottom: -100px;
+            left: -100px;
+            z-index: -1;
+            filter: blur(100px);
+            opacity: 0.3;
+        }
+
+        header {
+            padding: 2rem 10%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            backdrop-filter: blur(10px);
+            z-index: 100;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 800;
+            font-size: 1.5rem;
+            letter-spacing: -1px;
+        }
+
+        .logo-box {
+            width: 32px;
+            height: 32px;
+            background: var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            margin-left: 2rem;
+            font-weight: 500;
+            transition: 0.3s;
+        }
+
+        nav a:hover {
+            color: var(--text-main);
+        }
+
+        .hero {
+            padding: 8rem 10%;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .badge {
+            background: var(--glass);
+            border: 1px solid var(--border);
+            padding: 6px 16px;
+            border-radius: 100px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 2rem;
+            animation: fadeIn 1s ease-out;
+        }
+
+        h1 {
+            font-size: 5rem;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 1.5rem;
+            letter-spacing: -3px;
+            background: linear-gradient(180deg, #fff 0%, #888 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            max-width: 600px;
+            margin-bottom: 3rem;
+        }
+
+        .btn {
+            background: var(--text-main);
+            color: var(--bg);
+            padding: 16px 32px;
+            border-radius: 100px;
+            text-decoration: none;
+            font-weight: 700;
+            transition: 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px var(--accent-glow);
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            margin-left: 1rem;
+        }
+
+        .features {
+            padding: 6rem 10%;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2rem;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            padding: 40px;
+            border-radius: var(--radius);
+            transition: 0.4s;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .card:hover {
+            border-color: var(--accent);
+            transform: translateY(-10px);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .card i {
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+            width: 32px;
+            height: 32px;
+        }
+
+        .card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .card p {
+            color: var(--text-muted);
+            font-size: 1rem;
+        }
+
+        .bento-wide {
+            grid-column: 1 / -1;
+        }
+
+        /* Testimonials Styles */
+        .t-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            padding: 2rem;
+            border-radius: var(--radius);
+            min-width: 380px;
+            backdrop-filter: blur(5px);
+            transition: 0.3s;
+            flex-shrink: 0;
+        }
+
+        .t-card:hover {
+            border-color: var(--accent);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .t-card h4 {
+            font-weight: 400;
+            font-size: 1rem;
+            margin-bottom: 1.5rem;
+            color: var(--text-main);
+            font-style: italic;
+            line-height: 1.5;
+        }
+
+        .t-card p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .t-card strong {
+            color: var(--accent);
+        }
+
+        @keyframes scroll {
+            0% {
+                transform: translateX(0);
+            }
+
+            100% {
+                transform: translateX(-50%);
+            }
+        }
+
+        .testimonial-track:hover {
+            animation-play-state: paused;
+        }
+
+        .tech {
+            padding: 6rem 10%;
+            text-align: center;
+            border-top: 1px solid var(--border);
+        }
+
+        .tech-grid {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 4rem;
+            margin-top: 4rem;
+            opacity: 0.6;
+        }
+
+        .tech-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        footer {
+            padding: 4rem 10%;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 3rem;
+            }
+
+            .bento-wide {
+                grid-column: span 1;
+            }
+
+            .hero {
+                padding: 4rem 5%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="glow"></div>
+    <div class="glow-bottom"></div>
+
+    <header>
+        <div class="logo">
+            <div class="logo-box" style="background: transparent;">
+                <svg width="32" height="32" viewBox="0 0 120 120" version="1.1" xmlns="http://www.w3.org/2000/svg">
+                    <g transform="matrix(0.383603,0,0,0.383603,-112.504925,-39.000037)">
+                        <path
+                            d="M561.153,325.635C514.693,365.028 414.614,401.266 381.486,316.378C350.564,237.144 406.685,151.365 495.055,120.662C447.727,216.985 468.463,327.971 561.153,325.635Z"
+                            style="fill:url(#header_grad1);" />
+                        <path
+                            d="M414.807,265.767C414.068,333.027 500.173,383.639 547.852,355.966C585.545,310.607 578.153,256.158 601.066,225.115C589.486,222.898 574.951,228.072 568.544,235.463C530.849,233.246 529.371,262.81 504.98,284.245C474.318,311.19 435.849,298.723 414.807,265.767Z"
+                            style="fill:url(#header_grad2);" />
+                        <path
+                            d="M547.852,355.966C492.067,422.431 375.661,423.54 323.274,344.465C270.303,264.508 317.037,163.38 405.654,111.642C379.874,249.119 447.546,377.725 547.852,355.966Z"
+                            style="fill:url(#header_grad3);" />
+                    </g>
+                    <defs>
+                        <linearGradient id="header_grad1">
+                            <stop offset="0" style="stop-color:var(--accent);stop-opacity:1" />
+                            <stop offset="1" style="stop-color:white;stop-opacity:1" />
+                        </linearGradient>
+                        <linearGradient id="header_grad2">
+                            <stop offset="0" style="stop-color:white;stop-opacity:1" />
+                            <stop offset="1" style="stop-color:var(--accent);stop-opacity:1" />
+                        </linearGradient>
+                        <linearGradient id="header_grad3">
+                            <stop offset="0" style="stop-color:white;stop-opacity:1" />
+                            <stop offset="1" style="stop-color:var(--accent);stop-opacity:1" />
+                        </linearGradient>
+                    </defs>
+                </svg>
+            </div>
+            BlackBird
+        </div>
+        <nav>
+            <a href="#features">Features</a>
+            <a href="#tech">Tech</a>
+            <a href="https://github.com/jaccon/blackbird-player" target="_blank">GitHub</a>
+        </nav>
+    </header>
+
+    <div id="hero-logo-bg"
+        style="position: absolute; top: 55%; left: 50%; transform: translate(-50%, -50%); width: 90%; max-width: 1000px; opacity: 0.15; z-index: -1; pointer-events: none; transition: opacity 1s, filter 1s;">
+        <!-- Inlined logotipo.svg with high-contrast dynamic colors -->
+        <svg width="100%" height="100%" viewBox="0 0 120 120" version="1.1" xmlns="http://www.w3.org/2000/svg"
+            style="filter: drop-shadow(0 0 20px var(--accent));">
+            <g transform="matrix(0.383603,0,0,0.383603,-112.504925,-39.000037)">
+                <path
+                    d="M561.153,325.635C514.693,365.028 414.614,401.266 381.486,316.378C350.564,237.144 406.685,151.365 495.055,120.662C447.727,216.985 468.463,327.971 561.153,325.635Z"
+                    style="fill:url(#hero_grad1);" />
+                <path
+                    d="M414.807,265.767C414.068,333.027 500.173,383.639 547.852,355.966C585.545,310.607 578.153,256.158 601.066,225.115C589.486,222.898 574.951,228.072 568.544,235.463C530.849,233.246 529.371,262.81 504.98,284.245C474.318,311.19 435.849,298.723 414.807,265.767Z"
+                    style="fill:url(#hero_grad2);" />
+                <path
+                    d="M547.852,355.966C492.067,422.431 375.661,423.54 323.274,344.465C270.303,264.508 317.037,163.38 405.654,111.642C379.874,249.119 447.546,377.725 547.852,355.966Z"
+                    style="fill:url(#hero_grad3);" />
+            </g>
+            <defs>
+                <linearGradient id="hero_grad1" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" style="stop-color:var(--accent);stop-opacity:1" />
+                    <stop offset="1" style="stop-color:transparent;stop-opacity:1" />
+                </linearGradient>
+                <linearGradient id="hero_grad2" x1="1" y1="0" x2="0" y2="1">
+                    <stop offset="0" style="stop-color:var(--accent);stop-opacity:1" />
+                    <stop offset="1" style="stop-color:transparent;stop-opacity:1" />
+                </linearGradient>
+                <linearGradient id="hero_grad3" x1="0" y1="1" x2="1" y2="0">
+                    <stop offset="0" style="stop-color:var(--accent);stop-opacity:1" />
+                    <stop offset="1" style="stop-color:transparent;stop-opacity:1" />
+                </linearGradient>
+            </defs>
+        </svg>
+    </div>
+
+    <section class="hero" style="position: relative; overflow: hidden;">
+        <div class="badge">Version 1.1.0 Released</div>
+        <h1>Your Player. <br> Your Rules.</h1>
+        <p>A 100% Free and Open Source media environment. BlackBird brings your music, local videos, and YouTube
+            together in a single, unified workflow.</p>
+        <div class="actions">
+            <a href="https://github.com/jaccon/blackbird-player/releases" class="btn">
+                <i data-lucide="download"></i> Download Latest
+            </a>
+            <a href="https://github.com/jaccon/blackbird-player" class="btn btn-outline" target="_blank">View Source</a>
+        </div>
+    </section>
+
+    <!-- Screenshot Showcase -->
+    <section class="showcase" id="gallery" style="padding: 4rem 10%; text-align: center;">
+        <h2 style="font-size: 2.5rem; margin-bottom: 3rem;">Designed for Performance</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px;">
+            <div
+                style="background: var(--bg-card); height: 300px; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; position: relative;">
+                <img src="assets/images/statistics.jpg" alt="BlackBird Main Library" style="width: 100%; height: 100%; object-fit: cover;">
+                <div style="position: absolute; bottom: 15px; left: 15px; background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); padding: 5px 12px; border-radius: 4px; font-size: 0.75rem;">
+                    Universal Music Library View
+                </div>
+            </div>
+            <div
+                style="background: var(--bg-card); height: 300px; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; position: relative;">
+                <img src="assets/images/play-history.jpg" alt="BlackBird History & Statistics" style="width: 100%; height: 100%; object-fit: cover;">
+                <div style="position: absolute; bottom: 15px; left: 15px; background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); padding: 5px 12px; border-radius: 4px; font-size: 0.75rem;">
+                    Insights View
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="features" id="features">
+        <!-- Row 1 -->
+        <div class="card">
+            <i data-lucide="layers"></i>
+            <h3>Universal Playlists</h3>
+            <p>Break the silos. Create hybrid playlists where local MP3s, 4K local videos, and YouTube entries coexist
+                side-by-side.</p>
+        </div>
+        <div class="card">
+            <i data-lucide="edit-3"></i>
+            <h3>Metadata Mastery</h3>
+            <p>Full control over your data. Edit titles, artists, and albums to fix messy library tags instantly.</p>
+        </div>
+
+        <!-- Row 2 -->
+        <div class="card">
+            <i data-lucide="bar-chart-3"></i>
+            <h3>Listening Insights</h3>
+            <p>Visualize your habits. See exactly how many hours you've spent listening and your top tracks.</p>
+        </div>
+        <div class="card">
+            <i data-lucide="history"></i>
+            <h3>Detailed History</h3>
+            <p>A precise timeline of your 100 most recent plays. Revisit your favorite moments with automatic album art.
+            </p>
+        </div>
+
+        <!-- Row 3 -->
+        <div class="card">
+            <i data-lucide="puzzle"></i>
+            <h3>Open Source Plugins</h3>
+            <p>Built for developers. Create and integrate custom plugins to expand BlackBird's capabilities.</p>
+        </div>
+        <div class="card">
+            <i data-lucide="heart"></i>
+            <h3>Free. Forever.</h3>
+            <p>100% Free, Open Source, and without trackers or ads. Your data is yours, stored locally.</p>
+        </div>
+        <div class="card">
+            <i data-lucide="cloud"></i>
+            <h3>Supported by Pagefai</h3>
+            <p>Special thanks to <a href="https://www.pagefai.com" target="_blank"
+                    style="color: var(--accent); text-decoration: none; font-weight: 600;">Pagefai</a> for hosting the
+                BlackBird project and their invaluable contributions to the core architecture.</p>
+        </div>
+
+        <!-- Grand Finale: Theming -->
+        <div class="card bento-wide"
+            style="background: linear-gradient(135deg, rgba(255, 0, 85, 0.05) 0%, rgba(18, 18, 18, 1) 100%); padding: 0; display: grid; grid-template-columns: 1fr 1fr; min-height: 400px; overflow: hidden; border-color: rgba(255, 0, 85, 0.3);">
+            <div
+                style="padding: 40px; border-right: 1px solid var(--border); display: flex; flex-direction: column; justify-content: center;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+                    <i data-lucide="code" style="margin-bottom: 0;"></i>
+                    <h3 style="margin-bottom: 0;">JSON Configuration</h3>
+                </div>
+                <p style="margin-bottom: 20px; font-size: 0.95rem;">Customize every visual aspect of BlackBird. Define
+                    your palette, spacing, and typography in a single, lightweight JSON file.</p>
+                <div
+                    style="background: #000; border-radius: 8px; padding: 25px; font-family: 'Courier New', Courier, monospace; font-size: 0.8rem; border: 1px solid rgba(255, 0, 85, 0.2);">
+                    <pre style="color: #ff0055; margin: 0;">{
+  "name": "Cyberpunk 2077",
+  "variables": {
+    "--accent": "#ff0055",
+    "--bg-dark": "#050510",
+    "--bg-card": "#0d0d1e",
+    "--font": "'Rajdhani'"
+  }
+}</pre>
+                </div>
+            </div>
+
+            <div
+                style="padding: 20px; position: relative; background: rgba(0,0,0,1); display: flex; align-items: center; justify-content: center; min-height: 500px; border-left: 1px solid var(--border);">
+                <!-- App Theme Screenshot - Contain show the FULL image -->
+                <img src="assets/images/theme-example.jpg" alt="BlackBird Cyberpunk Theme Preview"
+                    style="width: 100%; height: 100%; object-fit: contain; opacity: 1;">
+
+                <!-- Overlay badge -->
+                <div
+                    style="position: absolute; top: 20px; right: 20px; font-size: 11px; background: #ff0055; color: white; padding: 4px 10px; border-radius: 4px; font-weight: 800; letter-spacing: 1.5px; box-shadow: 0 0 20px rgba(255, 0, 85, 0.5);">
+                    CYBERPUNK.JSON APPLIED</div>
+                <div
+                    style="position: absolute; bottom: 20px; left: 20px; background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); padding: 8px 15px; border-radius: 6px; font-size: 0.8rem; border: 1px solid rgba(255, 0, 85, 0.3);">
+                    App Preview: Custom Palette & Fonts Active
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials Slider -->
+    <section class="testimonials" id="reviews"
+        style="padding: 6rem 0; background: rgba(255,255,255,0.01); border-top: 1px solid var(--border); overflow: hidden;">
+        <div style="padding: 0 10%; margin-bottom: 4rem; text-align: center;">
+            <h2 style="font-size: 2.5rem; letter-spacing: -1px; margin-bottom: 10px;">Community Feedback</h2>
+            <p style="color: var(--text-muted);">Trusted by audiophiles, developers, and collectors worldwide.</p>
+        </div>
+
+        <div style="width: 100%; overflow: hidden; display: flex;">
+            <div class="testimonial-track"
+                style="display: flex; gap: 2rem; width: max-content; animation: scroll 80s linear infinite;">
+                <!-- Row 1 (30 Testimonials) -->
+                <div class="t-card">
+                    <h4>"The cleanest player for my FLAC collection. Absolute zero bloat."</h4>
+                    <p><strong>James Wilson</strong> • Senior Audiophile</p>
+                </div>
+                <div class="t-card">
+                    <h4>"YouTube integration works like magic. Seamless transitions between local and web."</h4>
+                    <p><strong>Sarah Chen</strong> • Lead UI Designer</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Local protocol makes streaming high-bitrate audio feel instant."</h4>
+                    <p><strong>Marcus Thorne</strong> • Sound Engineer</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Finally a player that doesn't track my library data. 100% private."</h4>
+                    <p><strong>Elena Petrova</strong> • Privacy Advocate</p>
+                </div>
+                <div class="t-card">
+                    <h4>"The theme system is incredibly easy to customize via simple JSON files."</h4>
+                    <p><strong>David Kim</strong> • Frontend Developer</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Handles my 100k track library without a single stutter. SQLite is king."</h4>
+                    <p><strong>Robert Blake</strong> • Media Archivist</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Love the history view. I never lose a track I heard at a party anymore."</h4>
+                    <p><strong>Aisha Khan</strong> • Music Student</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Metadata editor is precise and native. Best tool for library cleaning."</h4>
+                    <p><strong>Tomás Garcia</strong> • Professional DJ</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Open source and free forever. This is how software maturity looks like."</h4>
+                    <p><strong>Li Na</strong> • Core Contributor</p>
+                </div>
+                <div class="t-card">
+                    <h4>"The bento-style UI is miles ahead of any legacy Windows player."</h4>
+                    <p><strong>Oliver Smith</strong> • Tech Journalist</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Stunning aesthetic. It just sits perfectly on my secondary monitor."</h4>
+                    <p><strong>Emily White</strong> • Creative Director</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Best Spotify alternative for people who actually own their music."</h4>
+                    <p><strong>Jack Frost</strong> • Indie Artist</p>
+                </div>
+                <div class="t-card">
+                    <h4>"The advanced search is lightning fast. Finds everything instantly."</h4>
+                    <p><strong>Sofia Moretti</strong> • Digital Librarian</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Native ARM build on Mac feels incredibly smooth and responsive."</h4>
+                    <p><strong>Hans Weber</strong> • System Architect</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Unbeatable 100% open source transparency. No hidden telemetry."</h4>
+                    <p><strong>Luca Rossi</strong> • Security Researcher</p>
+                </div>
+                <div class="t-card">
+                    <h4>"My new daily driver for local music production and reference."</h4>
+                    <p><strong>Chloe Lam</strong> • Music Producer</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Plugin system changed the way I interact with my collection."</h4>
+                    <p><strong>Finn O'Brien</strong> • Platform Engineer</p>
+                </div>
+                <div class="t-card">
+                    <h4>"The best UI since Winamp's glory days. Retro feel, modern power."</h4>
+                    <p><strong>Arjun Dev</strong> • Software Historian</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Secure and locally focused. Exactly what I was looking for."</h4>
+                    <p><strong>Zara J.</strong> • Cybersecurity Specialist</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Responsive and lightweight. Respects my system resources."</h4>
+                    <p><strong>Yuki Tanaka</strong> • Minimalism Enthusiast</p>
+                </div>
+                <div class="t-card">
+                    <h4>"A masterpiece of Electron engineering. Performance is top-notch."</h4>
+                    <p><strong>Peter Parker</strong> • Fullstack Developer</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Brings all my local media and web videos together perfectly."</h4>
+                    <p><strong>Maria S.</strong> • Multimedia Artist</p>
+                </div>
+                <div class="t-card">
+                    <h4>"The cross-platform consistency is great for my dual-boot setup."</h4>
+                    <p><strong>Igor B.</strong> • DevOps Engineer</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Beautiful icons and typography. Very easy on the eyes at night."</h4>
+                    <p><strong>Rose L.</strong> • Visual Designer</p>
+                </div>
+                <div class="t-card">
+                    <h4>"The most reliable player for long work sessions. Stable as a rock."</h4>
+                    <p><strong>Sven G.</strong> • Project Manager</p>
+                </div>
+                <div class="t-card">
+                    <h4>"A must-have for anyone serious about local media hoarding."</h4>
+                    <p><strong>Anna K.</strong> • Database Admin</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Simply brilliant UX. Everything is where it should be."</h4>
+                    <p><strong>Omar D.</strong> • Product Owner</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Custom local protocols are the future of desktop media apps."</h4>
+                    <p><strong>Ben T.</strong> • Network Engineer</p>
+                </div>
+                <div class="t-card">
+                    <h4>"History stats are so insightful. I love seeing my listening trends."</h4>
+                    <p><strong>Jessica H.</strong> • Data Scientist</p>
+                </div>
+                <div class="t-card">
+                    <h4>"BlackBird is a game changer for local video management."</h4>
+                    <p><strong>Sam V.</strong> • Video Editor</p>
+                </div>
+
+                <!-- Repeat for loop -->
+                <div class="t-card">
+                    <h4>"The cleanest player for my FLAC collection. Absolute zero bloat."</h4>
+                    <p><strong>James Wilson</strong> • Senior Audiophile</p>
+                </div>
+                <div class="t-card">
+                    <h4>"YouTube integration works like magic. Seamless transitions between local and web."</h4>
+                    <p><strong>Sarah Chen</strong> • Lead UI Designer</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Local protocol makes streaming high-bitrate audio feel instant."</h4>
+                    <p><strong>Marcus Thorne</strong> • Sound Engineer</p>
+                </div>
+                <div class="t-card">
+                    <h4>"Finally a player that doesn't track my library data. 100% private."</h4>
+                    <p><strong>Elena Petrova</strong> • Privacy Advocate</p>
+                </div>
+                <div class="t-card">
+                    <h4>"The theme system is incredibly easy to customize via simple JSON files."</h4>
+                    <p><strong>David Kim</strong> • Frontend Developer</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="tech" id="tech">
+        <h2>Built with Modern Standards</h2>
+        <div class="tech-grid">
+            <div class="tech-item"><i data-lucide="cpu"></i><span>Electron</span></div>
+            <div class="tech-item"><i data-lucide="zap"></i><span>Vite</span></div>
+            <div class="tech-item"><i data-lucide="database"></i><span>SQLite</span></div>
+            <div class="tech-item"><i data-lucide="code-2"></i><span>TypeScript</span></div>
+        </div>
+    </section>
+
+    <footer>
+        <p>&copy; 2026 BlackBird Player | Created by Jaccon</p>
+        <p style="margin-top: 10px; opacity: 0.5;">Modern, Sleek, and Open Source.</p>
+    </footer>
+
+    <script>
+        lucide.createIcons();
+
+        // Dynamic Accent Color Shift
+        let hue = 230; // Start with blue
+        const root = document.documentElement;
+
+        setInterval(() => {
+            hue = (hue + 40) % 360;
+            // Map hue to HSL to maintain brightness/saturation
+            root.style.setProperty('--accent', `hsl(${hue}, 80%, 60%)`);
+            root.style.setProperty('--accent-glow', `hsla(${hue}, 80%, 60%, 0.4)`);
+        }, 5000);
+    </script>
+</body>
+
+</html>

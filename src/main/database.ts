@@ -7,10 +7,15 @@ import { createRequire } from 'module';
 const requireNative = createRequire(import.meta.url);
 const Database = requireNative('better-sqlite3');
 
-const dbPath = path.join(app.getPath('userData'), 'blackbird.db');
+const baseConfigDir = path.join(app.getPath('home'), 'BlackBird');
+if (!fs.existsSync(baseConfigDir)) {
+  fs.mkdirSync(baseConfigDir, { recursive: true });
+}
+
+const dbPath = path.join(baseConfigDir, 'blackbird.db');
 const db = new Database(dbPath);
 
-const coversDir = path.join(app.getPath('userData'), 'covers');
+const coversDir = path.join(baseConfigDir, 'covers');
 if (!fs.existsSync(coversDir)) {
   fs.mkdirSync(coversDir, { recursive: true });
 }
@@ -366,7 +371,7 @@ export const dbOps = {
 
   getThemes: () => {
     const builtinThemeDir = path.join(app.getAppPath(), 'resources', 'themes');
-    const userThemeDir = path.join(app.getPath('userData'), 'themes');
+    const userThemeDir = path.join(app.getPath('home'), 'BlackBird', 'themes');
     const themes = new Map();
 
     const loadFromDir = (dir: string) => {

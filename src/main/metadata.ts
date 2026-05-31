@@ -60,7 +60,7 @@ export async function getMetadata(filePath: string, skipCovers = false): Promise
 
 export async function scanDirectory(dirPath: string): Promise<string[]> {
   const files: string[] = [];
-  const supportedExtensions = ['.mp3', '.wav', '.ogg', '.mp4', '.webm'];
+  const supportedExtensions = ['.mp3', '.wav', '.ogg', '.mp4', '.webm', '.jpg', '.jpeg', '.png', '.gif'];
 
   function walk(currentDir: string) {
     try {
