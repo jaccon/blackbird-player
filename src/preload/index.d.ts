@@ -14,6 +14,7 @@ export interface TrackMetadata {
   fileName: string;
   format: string;
   description?: string;
+  lyrics?: string;
 }
 
 export interface Playlist {
@@ -35,6 +36,9 @@ declare global {
       updateTrack: (uuid: string, data: Partial<TrackMetadata>) => Promise<void>;
       deletePlaylist: (id: string) => Promise<void>;
       getThemes: () => Promise<any[]>;
+      startServer: (port?: number) => Promise<void>;
+      stopServer: () => Promise<void>;
+      getServerStatus: () => Promise<{ isRunning: boolean, ip: string, port: number }>;
     }
   }
 }

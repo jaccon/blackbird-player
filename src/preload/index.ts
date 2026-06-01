@@ -35,7 +35,10 @@ const api = {
   openPath: (folderPath: string) => ipcRenderer.invoke('open-path', folderPath),
   getAppPaths: () => ipcRenderer.invoke('get-app-paths'),
   exportSettings: () => ipcRenderer.invoke('export-settings'),
-  importSettings: () => ipcRenderer.invoke('import-settings')
+  importSettings: () => ipcRenderer.invoke('import-settings'),
+  getServerStatus: () => ipcRenderer.invoke('get-server-status'),
+  startServer: (port?: number) => ipcRenderer.invoke('start-server', port),
+  stopServer: () => ipcRenderer.invoke('stop-server')
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

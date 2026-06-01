@@ -1,0 +1,17 @@
+{
+  "name": "Gruvbox",
+  "variables": {
+    "--bg-dark": "#282828",
+    "--bg-card": "#3c3836",
+    "--sidebar-bg": "#1d2021",
+    "--text-main": "#ebdbb2",
+    "--text-muted": "#a89984",
+    "--accent": "#fabd2f",
+    "--accent-glow": "rgba(250, 189, 47, 0.4)",
+    "--border": "#504945",
+    "--glass": "rgba(250, 189, 47, 0.05)",
+    "--radius-lg": "12px",
+    "--radius-md": "8px",
+    "--font-family": "system-ui, sans-serif"
+  }
+}

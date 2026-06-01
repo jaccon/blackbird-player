@@ -1,0 +1,17 @@
+{
+  "name": "Obsidian",
+  "variables": {
+    "--bg-dark": "#292b2f",
+    "--bg-card": "#2f3136",
+    "--sidebar-bg": "#202225",
+    "--text-main": "#dcddde",
+    "--text-muted": "#8e9297",
+    "--accent": "#7289da",
+    "--accent-glow": "rgba(114, 137, 218, 0.4)",
+    "--border": "#202225",
+    "--glass": "rgba(220, 221, 222, 0.03)",
+    "--radius-lg": "12px",
+    "--radius-md": "8px",
+    "--font-family": "system-ui, sans-serif"
+  }
+}

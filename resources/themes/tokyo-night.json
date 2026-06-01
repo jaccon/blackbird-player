@@ -1,0 +1,17 @@
+{
+  "name": "Tokyo Night",
+  "variables": {
+    "--bg-dark": "#1a1b26",
+    "--bg-card": "#24283b",
+    "--sidebar-bg": "#16161e",
+    "--text-main": "#c0caf5",
+    "--text-muted": "#565f89",
+    "--accent": "#7aa2f7",
+    "--accent-glow": "rgba(122, 162, 247, 0.4)",
+    "--border": "#292e42",
+    "--glass": "rgba(122, 162, 247, 0.05)",
+    "--radius-lg": "12px",
+    "--radius-md": "8px",
+    "--font-family": "system-ui, sans-serif"
+  }
+}

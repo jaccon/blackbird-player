@@ -10,6 +10,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    @keyframes pulse {
+      0% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.1); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+  </style>
 </head>
 
 <body class="dark-theme">
@@ -38,6 +45,7 @@
             <li id="btn-statistics"><i data-lucide="bar-chart-2"></i> Statistics</li>
             <li id="btn-history"><i data-lucide="clock"></i> History</li>
             <li id="btn-setup"><i data-lucide="settings"></i> Setup</li>
+            <li id="btn-server"><i data-lucide="server"></i> Server</li>
           </ul>
         </div>
 
@@ -65,6 +73,9 @@
           <input type="text" placeholder="Search for songs, artists, albums..." id="search-input">
         </div>
         <div class="header-actions">
+          <div id="server-online-indicator" class="hidden" style="display: none; align-items: center; gap: 6px; color: #10b981; font-weight: 600; font-size: 14px; margin-right: 12px; animation: pulse 2s infinite;">
+            <i data-lucide="radio" style="width: 18px; height: 18px;"></i> Streaming Online
+          </div>
           <button class="btn-secondary" id="btn-import-media">
             <i data-lucide="upload"></i> Import Media
           </button>
@@ -77,8 +88,9 @@
         </div>
       </header>
 
-      <div class="content-view" id="content-view">
-        <div
+      <div class="main-content-wrapper" style="display: flex; flex: 1; overflow: hidden; position: relative;">
+        <div class="content-view" id="content-view" style="flex: 1; overflow-y: auto;">
+          <div
           style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); gap: 16px;">
           <i data-lucide="loader" class="spinner"
             style="width: 32px; height: 32px; animation: spin 1s linear infinite;"></i>
@@ -91,6 +103,22 @@
             }
           }
         </style>
+        </div>
+        
+        <!-- Lyrics Sidebar -->
+        <div id="lyrics-sidebar" class="lyrics-sidebar hidden">
+          <div class="lyrics-sidebar-header">
+            <div id="lyrics-sidebar-artwork" class="lyrics-artwork"></div>
+            <div class="lyrics-sidebar-info">
+              <h3 id="lyrics-sidebar-title">Song Title</h3>
+              <p id="lyrics-sidebar-artist">Artist</p>
+            </div>
+            <button class="btn-icon circle-small" id="btn-close-lyrics"><i data-lucide="x"></i></button>
+          </div>
+          <div id="lyrics-sidebar-text" class="lyrics-text">
+            No lyrics available for this track. Click the Edit button on the track list to add lyrics.
+          </div>
+        </div>
       </div>
 
       <div id="video-overlay" class="video-overlay hidden">
@@ -144,12 +172,13 @@
         </div>
       </div>
 
-      <div class="volume-controls">
+      <div class="volume-controls" style="display: flex; align-items: center; justify-content: flex-end; gap: 12px; height: 100%;">
         <button class="btn-icon" id="btn-mute"><i data-lucide="volume-2"></i></button>
         <div class="volume-bar-wrapper">
           <input type="range" class="volume-bar" id="volume-slider" value="80" max="100">
           <div class="volume-fill" id="volume-fill"></div>
         </div>
+        <button class="btn-icon" id="btn-lyric" title="Toggle Lyrics" style="font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 4px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin-left: 24px;">Lyric</button>
       </div>
     </footer>
   </div>
@@ -209,6 +238,11 @@
         <div class="input-group" style="margin-top:16px;">
           <label for="edit-description">Description</label>
           <textarea id="edit-description" rows="3"
+            style="width: 100%; background: var(--glass); border: 1px solid var(--border); padding: 12px 16px; border-radius: var(--radius-md); color: var(--text-main); font-family: inherit; font-size: 14px; outline: none;"></textarea>
+        </div>
+        <div class="input-group" style="margin-top:16px;">
+          <label for="edit-lyrics">Lyrics</label>
+          <textarea id="edit-lyrics" rows="6"
             style="width: 100%; background: var(--glass); border: 1px solid var(--border); padding: 12px 16px; border-radius: var(--radius-md); color: var(--text-main); font-family: inherit; font-size: 14px; outline: none;"></textarea>
         </div>
       </div>

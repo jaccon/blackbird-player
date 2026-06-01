@@ -43,10 +43,22 @@ function saveCoverToFile(uuid: string, coverData: string | null | undefined): st
 
 function formatCoverUrl(coverPath: string | null | undefined): string | null {
   if (!coverPath) return null;
-  if (coverPath.startsWith('data:') || coverPath.startsWith('http') || coverPath.startsWith('file://')) {
+  if (coverPath.startsWith('data:') || coverPath.startsWith('http')) {
     return coverPath;
   }
-  return `file://${coverPath}`;
+  
+  let actualPath = coverPath;
+  if (coverPath.startsWith('file://')) {
+    actualPath = coverPath.substring(7);
+  }
+  
+  try {
+    if (!fs.existsSync(actualPath)) return null;
+  } catch (e) {
+    return null;
+  }
+  
+  return `file://${actualPath}`;
 }
 
 // Initialize schema
@@ -61,7 +73,8 @@ db.exec(`
     cover TEXT,
     duration REAL,
     is_favorite INTEGER DEFAULT 0,
-    description TEXT
+    description TEXT,
+    lyrics TEXT
   );
 
   CREATE TABLE IF NOT EXISTS playlists (
@@ -116,6 +129,12 @@ try {
     db.exec('ALTER TABLE tracks ADD COLUMN description TEXT');
     console.log('Migrated DB: added description column');
   }
+
+  const hasLyrics = tableInfo.some(col => col.name === 'lyrics');
+  if (!hasLyrics) {
+    db.exec('ALTER TABLE tracks ADD COLUMN lyrics TEXT');
+    console.log('Migrated DB: added lyrics column');
+  }
 } catch (e) {
   console.error('Migration error:', e);
 }
@@ -154,6 +173,7 @@ export interface DBTrack {
   duration?: number;
   is_favorite?: number;
   description?: string;
+  lyrics?: string;
 }
 
 export interface Playlist {
@@ -171,8 +191,8 @@ export const dbOps = {
     }
 
     const stmt = db.prepare(`
-      INSERT INTO tracks (uuid, title, artist, album, file_path, format, cover, duration, is_favorite, description)
-      VALUES (@uuid, @title, @artist, @album, @file_path, @format, @cover, @duration, @is_favorite, @description)
+      INSERT INTO tracks (uuid, title, artist, album, file_path, format, cover, duration, is_favorite, description, lyrics)
+      VALUES (@uuid, @title, @artist, @album, @file_path, @format, @cover, @duration, @is_favorite, @description, @lyrics)
       ON CONFLICT(file_path) DO UPDATE SET
         title=excluded.title,
         artist=excluded.artist,
@@ -180,13 +200,14 @@ export const dbOps = {
         cover=excluded.cover,
         duration=excluded.duration,
         is_favorite=excluded.is_favorite,
-        description=excluded.description
+        description=excluded.description,
+        lyrics=excluded.lyrics
     `);
     return stmt.run(track);
   },
 
   getTrackByPath: (filePath: string) => {
-    const track = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks WHERE file_path = ?').get(filePath) as any;
+    const track = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description, lyrics FROM tracks WHERE file_path = ?').get(filePath) as any;
     if (track && track.cover) {
       track.cover = formatCoverUrl(track.cover);
     }
@@ -336,7 +357,7 @@ export const dbOps = {
 
   getPlaylistTracks: (playlistId: string) => {
     const tracks = db.prepare(`
-      SELECT t.uuid, t.title, t.artist, t.album, t.file_path as filePath, t.format, t.cover, t.duration, t.is_favorite, t.description
+      SELECT t.uuid, t.title, t.artist, t.album, t.file_path as filePath, t.format, t.cover, t.duration, t.is_favorite, t.description, t.lyrics
       FROM tracks t
       JOIN playlist_tracks pt ON t.uuid = pt.track_uuid
       WHERE pt.playlist_id = ?
@@ -354,7 +375,7 @@ export const dbOps = {
   },
 
   getAllTracks: () => {
-    const tracks = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks').all() as any[];
+    const tracks = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description, lyrics FROM tracks').all() as any[];
     tracks.forEach(t => {
       if (t.cover) t.cover = formatCoverUrl(t.cover);
     });
@@ -362,7 +383,7 @@ export const dbOps = {
   },
 
   getFavoriteTracks: () => {
-    const tracks = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description FROM tracks WHERE is_favorite = 1').all() as any[];
+    const tracks = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, cover, duration, is_favorite, description, lyrics FROM tracks WHERE is_favorite = 1').all() as any[];
     tracks.forEach(t => {
       if (t.cover) t.cover = formatCoverUrl(t.cover);
     });
@@ -380,11 +401,11 @@ export const dbOps = {
         .filter(f => f.endsWith('.json'))
         .forEach(f => {
           try {
-            const content = fs.readFileSync(path.join(dir, f), 'utf-8');
-            const parsed = JSON.parse(content);
-            if (parsed.name) themes.set(parsed.name, parsed);
+            const data = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'));
+            const themeId = data.id || data.name || f;
+            if (themeId) themes.set(themeId, data);
           } catch (e) {
-            console.error(`Error parsing theme ${f}:`, e);
+            console.error('Failed to load theme', f, e);
           }
         });
     };
@@ -393,6 +414,20 @@ export const dbOps = {
     loadFromDir(userThemeDir);
     
     return Array.from(themes.values());
+  },
+
+  getTrackPath: (uuid: string) => {
+    const track = db.prepare('SELECT file_path as filePath FROM tracks WHERE uuid = ?').get(uuid) as any;
+    return track ? track.filePath : null;
+  },
+
+  getTrackCoverPath: (uuid: string) => {
+    const track = db.prepare('SELECT cover FROM tracks WHERE uuid = ?').get(uuid) as any;
+    if (track && track.cover && !track.cover.startsWith('http') && !track.cover.startsWith('data:')) {
+      const dbPath = path.join(app.getPath('userData'), 'BlackBird');
+      return path.join(dbPath, 'covers', path.basename(track.cover));
+    }
+    return null;
   },
 
   deleteTracks: (uuids: string[]) => {
@@ -438,7 +473,7 @@ export const dbOps = {
 
       // Insert tracks
       if (importData.tracks && importData.tracks.length) {
-        const trackStmt = db.prepare(`INSERT INTO tracks (uuid, title, artist, album, file_path, format, cover, duration, is_favorite, description) VALUES (@uuid, @title, @artist, @album, @file_path, @format, @cover, @duration, @is_favorite, @description)`);
+        const trackStmt = db.prepare(`INSERT INTO tracks (uuid, title, artist, album, file_path, format, cover, duration, is_favorite, description, lyrics) VALUES (@uuid, @title, @artist, @album, @file_path, @format, @cover, @duration, @is_favorite, @description, @lyrics)`);
         for (const t of importData.tracks) trackStmt.run(t);
       }
 

@@ -11,6 +11,7 @@ process.on('uncaughtException', (error) => {
 import icon from '../../resources/icon.png?asset'
 import { getMetadata, scanDirectory } from './metadata'
 import { dbOps } from './database'
+import { startServer, stopServer, getServerStatus } from './server'
 import { v4 as uuidv4 } from 'uuid'
 import ChromecastAPI from 'chromecast-api'
 import localIpUrl from 'local-ip-url'
@@ -323,7 +324,7 @@ app.whenReady().then(() => {
             let dbTrack = dbOps.getTrackByPath(file)
             
             if (!dbTrack) {
-              const metadata = await getMetadata(file, true)
+              const metadata = await getMetadata(file, false)
               const uuid = uuidv4()
               dbTrack = {
                 uuid,
@@ -338,6 +339,12 @@ app.whenReady().then(() => {
                 description: metadata.description || ''
               }
               dbOps.upsertTrack(dbTrack)
+            } else if (!dbTrack.cover || dbTrack.cover === 'null') {
+              const metadata = await getMetadata(file, false)
+              if (metadata.cover) {
+                dbTrack.cover = metadata.cover
+                dbOps.upsertTrack(dbTrack)
+              }
             }
           } catch (e) {
             console.error(`Failed to process ${file}`, e)
@@ -381,7 +388,7 @@ app.whenReady().then(() => {
   ipcMain.handle('get-play-history', () => dbOps.getPlayHistory())
   ipcMain.handle('process-metadata', async (_, filePath: string) => {
     if (filePath.startsWith('http')) return {}
-    return await getMetadata(filePath, true)
+    return await getMetadata(filePath, false)
   })
   ipcMain.handle('upsert-track', (_, track: any) => dbOps.upsertTrack(track))
   ipcMain.handle('record-play', (_, trackUuid: string) => dbOps.recordPlay(trackUuid))
@@ -403,6 +410,10 @@ app.whenReady().then(() => {
       themes: join(baseConfigDir, 'themes')
     }
   })
+
+  ipcMain.handle('get-server-status', () => getServerStatus())
+  ipcMain.handle('start-server', (_, port?: number) => startServer(port))
+  ipcMain.handle('stop-server', () => stopServer())
   
   ipcMain.handle('export-settings', async () => {
     const data = dbOps.getAllRaw()

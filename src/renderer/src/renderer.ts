@@ -13,6 +13,7 @@ export interface TrackMetadata {
   format: string;
   is_favorite?: number;
   description?: string;
+  lyrics?: string;
 }
 
 export interface Playlist {
@@ -80,6 +81,13 @@ let playerArtist: HTMLElement
 let playerAlbum: HTMLElement
 let playerFormat: HTMLElement
 let playerArtwork: HTMLElement
+let btnLyric: HTMLElement
+let lyricsSidebar: HTMLElement
+let lyricsSidebarArtwork: HTMLElement
+let lyricsSidebarTitle: HTMLElement
+let lyricsSidebarArtist: HTMLElement
+let lyricsSidebarText: HTMLElement
+let btnCloseLyrics: HTMLElement
 let btnPlayPause: HTMLElement
 let seekSlider: HTMLInputElement
 let seekFill: HTMLElement
@@ -101,6 +109,7 @@ let btnPlaylistsScreen: HTMLElement
 let btnRadio: HTMLElement
 let btnPhotos: HTMLElement
 let btnSetup: HTMLElement
+let btnServer: HTMLElement
 let btnToggleFavorite: HTMLElement
 let playlistList: HTMLElement
 let btnNewPlaylist: HTMLElement
@@ -117,6 +126,7 @@ let inputEditArtist: HTMLInputElement
 let inputEditAlbum: HTMLInputElement
 let inputEditKind: HTMLInputElement
 let inputEditDescription: HTMLTextAreaElement
+let inputEditLyrics: HTMLTextAreaElement
 let inputEditArtwork: HTMLInputElement
 let previewEditArtwork: HTMLElement
 let currentEditArtworkBase64: string | null = null
@@ -164,6 +174,13 @@ async function init(): Promise<void> {
     playerAlbum = document.getElementById('player-album')!
     playerFormat = document.getElementById('player-format')!
     playerArtwork = document.getElementById('player-artwork')!
+    btnLyric = document.getElementById('btn-lyric')!
+    lyricsSidebar = document.getElementById('lyrics-sidebar')!
+    lyricsSidebarArtwork = document.getElementById('lyrics-sidebar-artwork')!
+    lyricsSidebarTitle = document.getElementById('lyrics-sidebar-title')!
+    lyricsSidebarArtist = document.getElementById('lyrics-sidebar-artist')!
+    lyricsSidebarText = document.getElementById('lyrics-sidebar-text')!
+    btnCloseLyrics = document.getElementById('btn-close-lyrics')!
     btnPlayPause = document.getElementById('btn-play-pause')!
     seekSlider = document.getElementById('seek-slider') as HTMLInputElement
     seekFill = document.getElementById('seek-fill')!
@@ -187,6 +204,7 @@ async function init(): Promise<void> {
     btnRadio = document.getElementById('btn-radio')!
     btnPhotos = document.getElementById('btn-photos')!
     btnSetup = document.getElementById('btn-setup')!
+    btnServer = document.getElementById('btn-server')!
     btnCast = document.getElementById('btn-cast')!
     themeSelector = document.getElementById('theme-selector') as HTMLSelectElement
 
@@ -216,6 +234,7 @@ async function init(): Promise<void> {
     inputEditAlbum = document.getElementById('edit-album') as HTMLInputElement
     inputEditKind = document.getElementById('edit-kind') as HTMLInputElement
     inputEditDescription = document.getElementById('edit-description') as HTMLTextAreaElement
+    inputEditLyrics = document.getElementById('edit-lyrics') as HTMLTextAreaElement
     inputEditArtwork = document.getElementById('edit-artwork-input') as HTMLInputElement
     previewEditArtwork = document.getElementById('edit-artwork-preview')!
 
@@ -240,11 +259,31 @@ async function init(): Promise<void> {
       setActiveNav('btn-setup')
       renderSetupScreen()
     })
+    
+    // Server button click - show Server screen
+    btnServer.addEventListener('click', () => {
+      selectedTrackUuids.clear()
+      setActiveNav('btn-server')
+      renderServerScreen()
+    })
     btnRadio = document.getElementById('btn-radio')!
     radioModal = document.getElementById('radio-modal')!
     inputRadioName = document.getElementById('radio-name') as HTMLInputElement
     inputRadioUrl = document.getElementById('radio-url') as HTMLInputElement
     checkRadioShare = document.getElementById('radio-share') as HTMLInputElement
+
+    // Lyrics sidebar listeners
+    btnLyric.addEventListener('click', () => {
+      lyricsSidebar.classList.toggle('hidden')
+      const track = currentTrackIndex >= 0 ? currentPlaylist[currentTrackIndex] : null
+      if (!lyricsSidebar.classList.contains('hidden') && track) {
+        updateSidebarUI(track)
+      }
+    })
+
+    btnCloseLyrics.addEventListener('click', () => {
+      lyricsSidebar.classList.add('hidden')
+    })
     btnSaveRadio = document.getElementById('btn-save-radio')!
     
     btnCast = document.getElementById('btn-cast')!
@@ -255,17 +294,7 @@ async function init(): Promise<void> {
     const footer = document.querySelector('.sidebar-footer')
     if (footer) {
       footer.innerHTML = `
-        <div class="theme-management-container" style="display:flex; flex-direction:column; gap:8px; width:100%; padding:12px; background:rgba(0,0,0,0.15); border:1px solid var(--border); border-radius:var(--radius-md); margin-bottom: 24px;">
-          <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--text-muted); font-weight:600;">Theme Options</div>
-          <div style="display:flex; gap:8px; width:100%;">
-            <select id="theme-selector" style="flex:1; width:auto; background:var(--glass); color:var(--text-main); border:1px solid var(--border); padding:8px; border-radius:var(--radius-md); font-family:inherit; outline:none; cursor:pointer;">
-              <option value="">Select Theme</option>
-            </select>
-            <button class="btn-secondary" id="btn-import-theme" title="Import Theme" style="padding: 8px; display:flex; align-items:center; justify-content:center;">
-              <i data-lucide="download"></i>
-            </button>
-          </div>
-        </div>
+        <div style="padding-bottom: 24px;"></div>
         <div style="border-top: 1px solid var(--border); padding-top: 16px; width: 100%;">
           <button class="btn-secondary" id="btn-update-player" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--bg-card); color: var(--text-main);">
             <i data-lucide="github"></i> Check for Updates
@@ -273,21 +302,6 @@ async function init(): Promise<void> {
         </div>
       `
 
-      themeSelector = document.getElementById('theme-selector') as HTMLSelectElement
-      
-      document.getElementById('btn-update-player')?.addEventListener('click', () => {
-        window.open('https://github.com/jaccon/blackbird-player', '_blank')
-      })
-      
-      document.getElementById('btn-import-theme')?.addEventListener('click', async () => {
-        const result = await (window as any).api.importTheme()
-        if (result && result.success) {
-          await setupThemes()
-          alert('Theme imported successfully!')
-        } else if (result && result.error) {
-          alert(`Failed to import theme: ${result.error}`)
-        }
-      })
     }
 
     if ((window as any).electron?.process?.platform === 'darwin') {
@@ -334,20 +348,24 @@ async function loadLibrary(): Promise<void> {
 
 async function setupThemes(): Promise<void> {
   availableThemes = await window.api.getThemes()
-  themeSelector.innerHTML = availableThemes.map(t => `<option value="${t.name}">${t.name}</option>`).join('')
+  if (themeSelector) {
+    themeSelector.innerHTML = availableThemes.map(t => `<option value="${t.name}" style="background:var(--sidebar-bg); color:var(--text-main);">${t.name}</option>`).join('')
+  }
   
-  const savedTheme = localStorage.getItem('selected-theme') || 'Neon Midnight'
+  const savedTheme = localStorage.getItem('selected-theme') || 'Blackbird'
   const theme = availableThemes.find(t => t.name === savedTheme)
   if (theme) {
     applyTheme(theme)
-    themeSelector.value = savedTheme
+    if (themeSelector) themeSelector.value = savedTheme
   }
 
-  themeSelector.onchange = () => {
-    const theme = availableThemes.find(t => t.name === themeSelector.value)
-    if (theme) {
-      applyTheme(theme)
-      localStorage.setItem('selected-theme', theme.name)
+  if (themeSelector) {
+    themeSelector.onchange = () => {
+      const theme = availableThemes.find(t => t.name === themeSelector.value)
+      if (theme) {
+        applyTheme(theme)
+        localStorage.setItem('selected-theme', theme.name)
+      }
     }
   }
 }
@@ -737,6 +755,7 @@ async function handleEditSidebarTrack(trackId?: string): Promise<void> {
   inputEditAlbum.value = track.album || ''
   inputEditKind.value = track.format || ''
   inputEditDescription.value = track.description || ''
+  inputEditLyrics.value = track.lyrics || ''
   inputEditArtwork.value = '' 
   currentEditArtworkBase64 = track.cover || null
   
@@ -768,7 +787,8 @@ async function handleSaveEdit(): Promise<void> {
       artist: newArtist || track.artist,
       album: newAlbum || track.album,
       format: newKind || track.format,
-      description: newDesc
+      description: newDesc,
+      lyrics: inputEditLyrics.value.trim()
     }
 
     if (currentEditArtworkBase64) {
@@ -783,6 +803,7 @@ async function handleSaveEdit(): Promise<void> {
     track.album = updatedMetadata.album
     track.format = updatedMetadata.format
     track.description = updatedMetadata.description
+    track.lyrics = updatedMetadata.lyrics
     
     if (updatedMetadata.cover) {
       track.cover = updatedMetadata.cover
@@ -809,6 +830,37 @@ async function handleSaveEdit(): Promise<void> {
 
 // Make it global for absolute reliability
 ;(window as any).handleEditSidebarTrack = handleEditSidebarTrack
+
+async function handleToggleListFavorite(trackId: string): Promise<void> {
+  const libTrack = library.find(t => t.uuid === trackId)
+  if (!libTrack) return
+  
+  const newState = libTrack.is_favorite ? 0 : 1
+  await (window as any).api.updateTrack(trackId, { is_favorite: newState })
+  
+  libTrack.is_favorite = newState
+  if (sidebarTrack && sidebarTrack.uuid === trackId) {
+    sidebarTrack.is_favorite = newState
+    btnToggleFavorite.classList.toggle('active', !!newState)
+  }
+  
+  // Update UI for the list item
+  document.querySelectorAll(`.track-item[data-uuid="${trackId}"]`).forEach(item => {
+    const btn = item.querySelector('.btn-favorite-list-item') as HTMLElement
+    if (btn) {
+      if (newState) {
+        btn.style.color = 'var(--primary)'
+        btn.innerHTML = '<i data-lucide="heart" fill="currentColor"></i>'
+      } else {
+        btn.style.color = 'inherit'
+        btn.innerHTML = '<i data-lucide="heart"></i>'
+      }
+    }
+  })
+  
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+}
+;(window as any).handleToggleListFavorite = handleToggleListFavorite
 
 async function handleAddFolder(): Promise<void> {
   console.log('handleAddFolder triggered')
@@ -934,8 +986,9 @@ async function renderHome(): Promise<void> {
     playedHtml = recentlyPlayed.map((track, idx) => `
       <div class="dashboard-track-item recently-played-item" data-index="${idx}" data-uuid="${track.uuid}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; margin-bottom: 8px; border: 1px solid transparent;">
         <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; flex: 1;">
-          <div style="width: 40px; height: 40px; border-radius: var(--radius-sm); overflow: hidden; background: var(--glass); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">
-            ${track.cover ? `<img src="${track.cover}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<i data-lucide="music" style="color: var(--text-muted); width: 18px;"></i>`}
+          <div style="width: 32px; height: 32px; border-radius: 50%; overflow: hidden; background: var(--glass); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.15); container-type: size; position: relative;">
+            ${(createPlaceholderMarkup as any)(track.title || track.fileName || 'Unknown')}
+            ${(track.cover && track.cover !== 'null') ? `<img src="${track.cover}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10;" onerror="this.style.display='none';" />` : ''}
           </div>
           <div style="overflow: hidden; padding-right: 8px;">
             <div style="font-size: 14px; font-weight: 600; color: var(--text-main); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.title || track.fileName || 'Unknown Title'}</div>
@@ -964,8 +1017,9 @@ async function renderHome(): Promise<void> {
     addedHtml = recentlyAdded.map((track, idx) => `
       <div class="dashboard-track-item recently-added-item" data-index="${idx}" data-uuid="${track.uuid}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; margin-bottom: 8px; border: 1px solid transparent;">
         <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; flex: 1;">
-          <div style="width: 40px; height: 40px; border-radius: var(--radius-sm); overflow: hidden; background: var(--glass); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">
-            ${track.cover ? `<img src="${track.cover}" style="width: 100%; height: 100%; object-fit: cover;" />` : `<i data-lucide="music" style="color: var(--text-muted); width: 18px;"></i>`}
+          <div style="width: 32px; height: 32px; border-radius: 50%; overflow: hidden; background: var(--glass); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.15); container-type: size; position: relative;">
+            ${(createPlaceholderMarkup as any)(track.title || track.fileName || 'Unknown')}
+            ${(track.cover && track.cover !== 'null') ? `<img src="${track.cover}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10;" onerror="this.style.display='none';" />` : ''}
           </div>
           <div style="overflow: hidden; padding-right: 8px;">
             <div style="font-size: 14px; font-weight: 600; color: var(--text-main); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.title || track.fileName || 'Unknown Title'}</div>
@@ -1407,6 +1461,35 @@ async function renderSetupScreen(): Promise<void> {
               </div>
               <div style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.15); padding: 8px 12px; border-radius: 8px; color: var(--text-muted); word-break: break-all; border: 1px solid rgba(255,255,255,0.02);">${paths.userData}</div>
             </div>
+            
+          </div>
+        </div>
+
+        <!-- Section 3: Appearance & Themes -->
+        <div style="background: var(--glass); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 18px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+            <i data-lucide="palette" style="width: 18px; height: 18px;"></i> Visual Appearance
+          </h3>
+          
+          <div style="display: flex; flex-direction: column; gap: 20px;">
+            
+            <!-- Theme Selector -->
+            <div style="display: flex; flex-direction: column; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">Current Theme</div>
+                  <div style="font-size: 12px; color: var(--text-muted);">Choose the active color scheme for the application.</div>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center; position: relative; z-index: 9999;">
+                  <select id="theme-selector" style="min-width: 150px; background:var(--sidebar-bg); color:var(--text-main); border:1px solid var(--border); padding:8px; border-radius:var(--radius-md); font-family:inherit; outline:none; cursor:pointer; position:relative; z-index:9999;">
+                    <option value="" style="background:var(--sidebar-bg); color:var(--text-main);">Select Theme</option>
+                  </select>
+                  <button class="btn-secondary" id="btn-import-theme" title="Import Theme" style="padding: 8px 16px; display:flex; align-items:center; justify-content:center; gap:6px; font-weight:600;">
+                    <i data-lucide="download" style="width:14px;"></i> Import
+                  </button>
+                </div>
+              </div>
+            </div>
 
             <!-- Themes Directory -->
             <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -1471,6 +1554,19 @@ async function renderSetupScreen(): Promise<void> {
   `
 
   if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  // Theme Logic
+  themeSelector = document.getElementById('theme-selector') as HTMLSelectElement
+  await setupThemes()
+  document.getElementById('btn-import-theme')?.addEventListener('click', async () => {
+    const result = await (window as any).api.importTheme()
+    if (result && result.success) {
+      await setupThemes()
+      alert('Theme imported successfully!')
+    } else if (result && result.error) {
+      alert(`Failed to import theme: ${result.error}`)
+    }
+  })
 
   // Setup click listener for Sync Folder button
   document.getElementById('btn-sync-folder')?.addEventListener('click', async () => {
@@ -1721,6 +1817,10 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
                  data-uuid="${track.uuid}"
                  draggable="true">
               <div class="track-num">${index + 1}</div>
+              <div style="width:32px; height:32px; border-radius:50%; background:rgba(0,0,0,0.2); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; container-type: size; position: relative;">
+                ${(createPlaceholderMarkup as any)(track.title || track.fileName || 'Unknown')}
+                ${(track.cover && track.cover !== 'null') ? `<img src="${track.cover}" style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:10;" onerror="this.style.display='none';">` : ''}
+              </div>
               <div class="track-name-cell" style="overflow: hidden;">
                 <div class="track-name">${track.title || track.fileName || (track.filePath ? track.filePath.split(/[\\\/]/).pop() ?? 'Unknown' : 'Unknown')}</div>
                 <div class="track-list-artist">${track.artist || 'Unknown'}</div>
@@ -1730,6 +1830,9 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
               <div class="track-kind-cell" style="font-size: 13px; color: var(--text-muted); text-transform: uppercase;">${track.format || 'Unknown'}</div>
               <div class="track-duration" style="display:flex; align-items:center; justify-content:flex-end; gap:16px;">
                  ${formatTime(track.duration || 0)}
+                 <button class="btn-icon circle-small btn-favorite-list-item" data-uuid="${track.uuid}" title="Toggle Favorite" style="transition:all 0.2s; background:var(--glass); color:${track.is_favorite ? 'var(--primary)' : 'inherit'};" onclick="event.stopPropagation(); window.handleToggleListFavorite('${track.uuid}')">
+                   <i data-lucide="heart" ${track.is_favorite ? 'fill="currentColor"' : ''}></i>
+                 </button>
                  <button class="btn-icon circle-small btn-edit-list-item" data-uuid="${track.uuid}" title="Edit Metadata" style="transition:all 0.2s; background:var(--glass);" onclick="event.stopPropagation(); window.handleEditSidebarTrack('${track.uuid}')">
                    <i data-lucide="edit"></i>
                  </button>
@@ -1829,15 +1932,57 @@ function updateSidebarUI(track: TrackMetadata): void {
   playerAlbum.textContent = track.album ?? 'Unknown Album'
   playerFormat.textContent = track.format?.toUpperCase() || 'AUDIO'
 
-  if (track.cover) {
-    playerArtwork.innerHTML = `<img src="${track.cover}">`
-  } else {
-    playerArtwork.innerHTML = (createPlaceholderMarkup as any)(displayName)
+  playerArtwork.style.position = 'relative'
+  const artworkHTML = (createPlaceholderMarkup as any)(displayName) + 
+    ((track.cover && track.cover !== 'null') ? `<img src="${track.cover}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10;" onerror="this.style.display='none';">` : '')
+  playerArtwork.innerHTML = artworkHTML
+
+  if (lyricsSidebar && !lyricsSidebar.classList.contains('hidden')) {
+    lyricsSidebarTitle.textContent = displayName
+    lyricsSidebarArtist.textContent = track.artist ?? 'Unknown Artist'
+    lyricsSidebarArtwork.innerHTML = artworkHTML
+    if (track.lyrics && track.lyrics.trim().length > 0) {
+      lyricsSidebarText.innerHTML = ''
+      const lines = track.lyrics.split('\n')
+      lines.forEach((line) => {
+        const div = document.createElement('div')
+        div.className = 'lyric-line'
+        div.textContent = line || ' '
+        lyricsSidebarText.appendChild(div)
+      })
+    } else {
+      lyricsSidebarText.textContent = 'No lyrics available for this track. Click the Edit button on the track list to add lyrics.'
+    }
+  }
+
+  if (!track.cover || track.cover === 'null') {
     // Fetch cover on demand if missing
     ;(window as any).api.getTrackCover(track.uuid, track.filePath).then(cover => {
-      if (cover) {
+      if (cover && cover !== 'null') {
         track.cover = cover
-        playerArtwork.innerHTML = `<img src="${cover}">`
+        const newArtworkHTML = (createPlaceholderMarkup as any)(displayName) + `<img src="${cover}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10;" onerror="this.style.display='none';">`
+        playerArtwork.innerHTML = newArtworkHTML
+        if (lyricsSidebar && !lyricsSidebar.classList.contains('hidden')) {
+          lyricsSidebarArtwork.innerHTML = newArtworkHTML
+        }
+        
+        // Update the list thumbnail for this track if it's visible in any track lists
+        const trackItems = document.querySelectorAll(`.track-item[data-uuid="${track.uuid}"]`);
+        trackItems.forEach(item => {
+          const thumbDiv = item.querySelector('div[style*="border-radius: 50%"]') || item.querySelector('div[style*="border-radius:50%"]');
+          if (thumbDiv) {
+            thumbDiv.innerHTML = newArtworkHTML;
+          }
+        });
+        
+        // Update the list thumbnail for this track if it's visible in home dashboard
+        const dashItems = document.querySelectorAll(`.dashboard-track-item[data-uuid="${track.uuid}"]`);
+        dashItems.forEach(item => {
+          const thumbDiv = item.querySelector('div[style*="border-radius: 50%"]') || item.querySelector('div[style*="border-radius:50%"]');
+          if (thumbDiv) {
+            thumbDiv.innerHTML = newArtworkHTML;
+          }
+        });
       }
     })
   }
@@ -1950,8 +2095,9 @@ function renderAlbumGrid(): void {
         const firstTrack = albums[albumName][0]
         return `
           <div class="album-card" data-album="${albumName}" style="background:var(--bg-card); border:1px solid var(--border); padding:16px; border-radius:var(--radius-lg); cursor:pointer; transition:all 0.2s ease;">
-            <div class="album-cover" style="width:100%; aspect-ratio:1/1; border-radius:var(--radius-md); overflow:hidden; margin-bottom:12px; container-type: size;">
-              ${firstTrack.cover ? `<img src="${firstTrack.cover}" style="width:100%; height:100%; object-fit:cover;">` : (createPlaceholderMarkup as any)(albumName)}
+            <div class="album-cover" style="width:100%; aspect-ratio:1/1; border-radius:50%; overflow:hidden; margin-bottom:12px; container-type: size; position: relative;">
+              ${(createPlaceholderMarkup as any)(albumName)}
+              ${(firstTrack.cover && firstTrack.cover !== 'null') ? `<img src="${firstTrack.cover}" style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:10;" onerror="this.style.display='none';">` : ''}
             </div>
             <div class="album-info">
               <h4 style="font-weight:600; font-size:15px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${albumName}</h4>
@@ -1989,8 +2135,9 @@ function renderArtistGrid(): void {
         const firstTrack = artists[artistName][0]
         return `
           <div class="artist-card" data-artist="${artistName}" style="background:var(--bg-card); border:1px solid var(--border); padding:16px; border-radius:var(--radius-lg); cursor:pointer; transition:all 0.2s ease; text-align:center;">
-            <div class="artist-avatar" style="width:140px; height:140px; border-radius:50%; overflow:hidden; margin:0 auto 16px; container-type: size; border:1px solid var(--border);">
-              ${firstTrack.cover ? `<img src="${firstTrack.cover}" style="width:100%; height:100%; object-fit:cover;">` : (createPlaceholderMarkup as any)(artistName)}
+            <div class="artist-avatar" style="width:140px; height:140px; border-radius:50%; overflow:hidden; margin:0 auto 16px; container-type: size; border:1px solid var(--border); position: relative;">
+              ${(createPlaceholderMarkup as any)(artistName)}
+              ${(firstTrack.cover && firstTrack.cover !== 'null') ? `<img src="${firstTrack.cover}" style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:10;" onerror="this.style.display='none';">` : ''}
             </div>
             <div class="artist-info">
               <h4 style="font-weight:600; font-size:16px; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${artistName}</h4>
@@ -2031,10 +2178,11 @@ function renderHistory(items: any[]): void {
               hour: '2-digit', minute: '2-digit'
             }) : 'Unknown Time'
             return `
-            <div class="track-item" style="cursor: pointer; display: grid; grid-template-columns: 40px 56px 1fr 180px; align-items: center; padding: 12px 16px; gap: 8px; border-radius: var(--radius-md);" data-uuid="${item.uuid}" data-index="${index}">
+            <div class="track-item" style="cursor: pointer; display: grid; grid-template-columns: 40px 32px 1fr 180px; align-items: center; padding: 12px 16px; gap: 8px; border-radius: var(--radius-md);" data-uuid="${item.uuid}" data-index="${index}">
               <div class="track-num">${index + 1}</div>
-              <div style="width: 48px; height: 48px; border-radius: var(--radius-sm); overflow: hidden; background: var(--glass); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
-                ${item.cover ? `<img src="${item.cover}" style="width:100%; height:100%; object-fit:cover;">` : `<i data-lucide="music" style="color:var(--text-muted); width:20px; height:20px;"></i>`}
+              <div style="width:32px; height:32px; border-radius:50%; background:rgba(0,0,0,0.2); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; container-type: size; position: relative;">
+                ${(createPlaceholderMarkup as any)(item.title || item.fileName || 'Unknown')}
+                ${(item.cover && item.cover !== 'null') ? `<img src="${item.cover}" style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:10;" onerror="this.style.display='none';">` : ''}
               </div>
               <div class="track-name-cell" style="overflow: hidden; padding-right: 16px;">
                 <div class="track-name" style="font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; color: var(--text-main);">${item.title || 'Unknown Title'}</div>
@@ -2126,14 +2274,18 @@ function renderStatistics(stats: any): void {
           </div>
           <div class="track-list" style="padding: 12px;">
             ${stats.topTracks.length > 0 ? stats.topTracks.map((track: any, index: number) => `
-              <div class="track-item" style="cursor: default;" data-uuid="${track.uuid}">
+              <div class="track-item" style="cursor: default; grid-template-columns: 40px 32px 1fr 120px; gap: 12px;" data-uuid="${track.uuid}">
                 <div class="track-num">${index + 1}</div>
+                <div style="width:32px; height:32px; border-radius:50%; background:rgba(0,0,0,0.2); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; container-type: size; position: relative;">
+                  ${(createPlaceholderMarkup as any)(track.title || track.fileName || 'Unknown')}
+                  ${(track.cover && track.cover !== 'null') ? `<img src="${track.cover}" style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:10;" onerror="this.style.display='none';">` : ''}
+                </div>
                 <div class="track-name-cell" style="overflow: hidden;">
                   <div class="track-name">${track.title || 'Unknown Title'}</div>
                   <div class="track-list-artist">${track.artist || 'Unknown Artist'}</div>
                   <div class="track-list-path" style="font-size: 10px; color: var(--text-muted); opacity: 0.6; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${track.filePath || ''}">${track.filePath || ''}</div>
                 </div>
-                <div class="track-album-cell" style="flex: 1; align-items: center; justify-content: flex-end; padding-right: 24px;">
+                <div class="track-album-cell" style="flex: 1; display:flex; align-items: center; justify-content: flex-end; padding-right: 0;">
                   <span class="tag small" style="background: var(--glass); color: var(--accent);">${track.playCount} Plays</span>
                 </div>
               </div>
@@ -2326,16 +2478,40 @@ function playTrack(index: number): void {
     })
   }
   
-  if (track.cover) {
-    playerArtwork.innerHTML = `<img src="${track.cover}">`
-  } else {
-    playerArtwork.innerHTML = (createPlaceholderMarkup as any)(displayName)
+  playerArtwork.style.position = 'relative'
+  const artworkHTML = (createPlaceholderMarkup as any)(displayName) + 
+    ((track.cover && track.cover !== 'null') ? `<img src="${track.cover}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10;" onerror="this.style.display='none';">` : '')
+  playerArtwork.innerHTML = artworkHTML
+
+  if (lyricsSidebar && !lyricsSidebar.classList.contains('hidden')) {
+    lyricsSidebarTitle.textContent = displayName
+    lyricsSidebarArtist.textContent = track.artist ?? 'Unknown Artist'
+    lyricsSidebarArtwork.innerHTML = artworkHTML
+    if (track.lyrics && track.lyrics.trim().length > 0) {
+      lyricsSidebarText.innerHTML = ''
+      const lines = track.lyrics.split('\n')
+      lines.forEach((line) => {
+        const div = document.createElement('div')
+        div.className = 'lyric-line'
+        div.textContent = line || ' '
+        lyricsSidebarText.appendChild(div)
+      })
+    } else {
+      lyricsSidebarText.textContent = 'No lyrics available for this track. Click the Edit button on the track list to add lyrics.'
+    }
+  }
+
+  if (!track.cover || track.cover === 'null') {
     // Only fetch cover from disk if it's a local file and not in radio mode
     if (!isRadioMode && !track.filePath.startsWith('http')) {
       ;(window as any).api.getTrackCover(track.uuid, track.filePath).then(cover => {
-        if (cover) {
+        if (cover && cover !== 'null') {
           track.cover = cover
-          playerArtwork.innerHTML = `<img src="${cover}">`
+          const newArtworkHTML = (createPlaceholderMarkup as any)(displayName) + `<img src="${cover}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10;" onerror="this.style.display='none';">`
+          playerArtwork.innerHTML = newArtworkHTML
+          if (lyricsSidebar && !lyricsSidebar.classList.contains('hidden')) {
+            lyricsSidebarArtwork.innerHTML = newArtworkHTML
+          }
         }
       })
     }
@@ -2345,6 +2521,7 @@ function playTrack(index: number): void {
   saveSession() 
   
   btnPlayPause.innerHTML = '<i data-lucide="pause"></i>'
+  btnPlayPause.classList.add('is-playing')
   if ((window as any).lucide) (window as any).lucide.createIcons()
 
   // Show system notification
@@ -2374,12 +2551,14 @@ function togglePlay(): void {
     if (currentPlayer.src) {
       currentPlayer.play()
       btnPlayPause.innerHTML = '<i data-lucide="pause"></i>'
+      btnPlayPause.classList.add('is-playing')
     } else if (currentPlaylist.length > 0) {
       playTrack(0)
     }
   } else {
     currentPlayer.pause()
     btnPlayPause.innerHTML = '<i data-lucide="play"></i>'
+    btnPlayPause.classList.remove('is-playing')
   }
   if ((window as any).lucide) (window as any).lucide.createIcons()
 }
@@ -2430,6 +2609,26 @@ function updatePlaybackProgress(): void {
   
   const percent = (current / duration) * 100
   seekFill.style.width = `${percent}%`
+
+  if (!lyricsSidebar.classList.contains('hidden') && currentPlaylist[currentTrackIndex]?.lyrics) {
+    const lines = lyricsSidebarText.querySelectorAll('.lyric-line')
+    if (lines.length > 0) {
+      let activeIndex = Math.floor((current / duration) * lines.length)
+      if (activeIndex >= lines.length) activeIndex = lines.length - 1
+      if (activeIndex < 0) activeIndex = 0
+      
+      lines.forEach((line, i) => {
+        if (i === activeIndex) {
+          if (!line.classList.contains('active')) {
+            line.classList.add('active')
+            line.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        } else {
+          line.classList.remove('active')
+        }
+      })
+    }
+  }
 
   // Continuous save for robustness (every 2 seconds)
   if (Math.floor(current) % 2 === 0) {
@@ -2494,6 +2693,22 @@ async function loadSession(): Promise<void> {
         }, { once: true })
       }
     }
+    setInterval(async () => {
+      try {
+        const status = await window.api.getServerStatus()
+        const indicator = document.getElementById('server-online-indicator')
+        if (indicator) {
+          if (status.isRunning) {
+            indicator.style.display = 'flex'
+            indicator.classList.remove('hidden')
+          } else {
+            indicator.style.display = 'none'
+            indicator.classList.add('hidden')
+          }
+        }
+      } catch (e) {}
+    }, 2000)
+    
   } catch (e) {
     console.error('Failed to load session:', e)
   }
@@ -2731,8 +2946,12 @@ async function renderRadioDetail(station: any): Promise<void> {
        listContainer.innerHTML = `<div style="padding:40px; text-align:center; color:var(--text-muted); opacity: 0.7;">No tracks available for this broadcast feed.</div>`
      } else {
        listContainer.innerHTML = tracks.map((t: any, i: number) => `
-         <div class="track-item" data-index="${i}" style="display:flex; align-items:center; padding:10px 16px; border-radius:12px; cursor:default; margin-bottom:4px; transition:all 0.2s; background: rgba(255,255,255,0.02); border: 1px solid transparent;">
+         <div class="track-item" data-index="${i}" style="display:flex; align-items:center; padding:10px 16px; border-radius:12px; cursor:default; margin-bottom:4px; transition:all 0.2s; background: rgba(255,255,255,0.02); border: 1px solid transparent; gap: 12px;">
             <div class="track-num" style="width:30px; font-size:12px; font-weight:700; color: var(--text-muted);">${(i + 1).toString().padStart(2, '0')}</div>
+            <div style="width:32px; height:32px; border-radius:50%; background:rgba(0,0,0,0.2); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; container-type: size; position: relative;">
+              ${(createPlaceholderMarkup as any)(t.title || 'Radio')}
+              ${(t.cover && t.cover !== 'null') ? `<img src="${t.cover}" style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:10;" onerror="this.style.display='none';">` : ''}
+            </div>
             <div style="flex:1;">
                <div class="track-name" style="font-weight:600; font-size: 14px;">${t.title}</div>
                <div style="font-size:12px; color:var(--text-muted);">${t.artist || 'Unknown Artist'}</div>
@@ -2826,3 +3045,93 @@ function showRadioToast(message: string): void {
 
 ;(window as any).showRadioToast = showRadioToast
 ;(window as any).renderRadioStreaming = renderRadioStreaming
+
+async function renderServerScreen(): Promise<void> {
+  lastListViewTitle = 'Local Server'
+  
+  const status = await (window as any).api.getServerStatus()
+  
+  contentView.innerHTML = `
+    <div style="padding: 32px; max-width: 800px; margin: 0 auto;">
+      <h1 style="font-size: 32px; margin-bottom: 8px;">Local Server</h1>
+      <p style="color: var(--text-muted); margin-bottom: 32px;">
+        Share your music library over your local network. Turn on the server and access your library from any phone or computer connected to the same Wi-Fi.
+      </p>
+      
+      <div style="background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 32px; display: flex; flex-direction: column; gap: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h3 style="font-size: 18px; margin-bottom: 4px;">Server Status</h3>
+            <p style="color: var(--text-muted); font-size: 14px;" id="server-status-text">
+              ${status.isRunning ? 'Server is currently running.' : 'Server is stopped.'}
+            </p>
+          </div>
+          <button id="btn-toggle-server" style="background: ${status.isRunning ? 'var(--accent)' : 'transparent'}; color: ${status.isRunning ? '#fff' : 'var(--text-main)'}; border: 1px solid ${status.isRunning ? 'var(--accent)' : 'var(--border)'}; padding: 8px 16px; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s;">
+            <i data-lucide="${status.isRunning ? 'power-off' : 'power'}"></i>
+            ${status.isRunning ? 'Stop Server' : 'Start Server'}
+          </button>
+        </div>
+
+        <div id="server-details" style="display: ${status.isRunning ? 'block' : 'none'}; padding-top: 24px; border-top: 1px solid var(--border);">
+          <h3 style="font-size: 16px; margin-bottom: 12px; color: var(--text-muted);">Access Address</h3>
+          <div style="display: flex; gap: 12px; align-items: center;">
+            <input type="text" readonly value="http://${status.ip}:${status.port}" style="flex: 1; background: var(--bg-dark); border: 1px solid var(--border); padding: 12px; border-radius: var(--radius-md); color: var(--text-main); font-family: monospace; font-size: 16px;">
+            <button id="btn-copy-address" style="background: var(--glass); border: 1px solid var(--border); color: var(--text-main); padding: 12px 24px; border-radius: var(--radius-md); cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+              <i data-lucide="copy"></i> Copy
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  const btnToggle = document.getElementById('btn-toggle-server')!
+  const btnCopy = document.getElementById('btn-copy-address')
+  const details = document.getElementById('server-details')!
+  const statusText = document.getElementById('server-status-text')!
+
+  let isRunning = status.isRunning
+
+  btnToggle.addEventListener('click', async () => {
+    if (isRunning) {
+      const res = await (window as any).api.stopServer()
+      isRunning = res.isRunning
+    } else {
+      const res = await (window as any).api.startServer(3000)
+      isRunning = res.isRunning
+      if (isRunning) {
+        const input = details.querySelector('input')
+        if (input) input.value = `http://${res.ip}:${res.port}`
+      }
+    }
+    
+    // Update UI directly
+    statusText.textContent = isRunning ? 'Server is currently running.' : 'Server is stopped.'
+    btnToggle.innerHTML = `<i data-lucide="${isRunning ? 'power-off' : 'power'}"></i> ${isRunning ? 'Stop Server' : 'Start Server'}`
+    btnToggle.style.background = isRunning ? 'var(--accent)' : 'transparent'
+    btnToggle.style.color = isRunning ? '#fff' : 'var(--text-main)'
+    btnToggle.style.borderColor = isRunning ? 'var(--accent)' : 'var(--border)'
+    details.style.display = isRunning ? 'block' : 'none'
+    
+    if ((window as any).lucide) (window as any).lucide.createIcons()
+  })
+
+  if (btnCopy) {
+    btnCopy.addEventListener('click', () => {
+      const input = details.querySelector('input')
+      if (input) {
+        navigator.clipboard.writeText(input.value)
+        const origHtml = btnCopy.innerHTML
+        btnCopy.innerHTML = '<i data-lucide="check"></i> Copied!'
+        if ((window as any).lucide) (window as any).lucide.createIcons()
+        setTimeout(() => {
+          btnCopy.innerHTML = origHtml
+          if ((window as any).lucide) (window as any).lucide.createIcons()
+        }, 2000)
+      }
+    })
+  }
+}
+

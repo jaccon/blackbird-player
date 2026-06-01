@@ -1,0 +1,17 @@
+{
+  "name": "Retro Wave",
+  "variables": {
+    "--bg-dark": "#1a0b2e",
+    "--bg-card": "#2d1b4e",
+    "--sidebar-bg": "#150926",
+    "--text-main": "#ff71ce",
+    "--text-muted": "#b967ff",
+    "--accent": "#01cdfe",
+    "--accent-glow": "rgba(1, 205, 254, 0.5)",
+    "--border": "#05ffa1",
+    "--glass": "rgba(255, 113, 206, 0.1)",
+    "--radius-lg": "12px",
+    "--radius-md": "8px",
+    "--font-family": "system-ui, sans-serif"
+  }
+}
