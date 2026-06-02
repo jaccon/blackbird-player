@@ -308,11 +308,16 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('scan-folder', async (_, folderPath: string) => {
+  ipcMain.handle('scan-folder', async (_, { folderPath, copyOnImport }: { folderPath: string, copyOnImport: boolean }) => {
     try {
-      console.log(`Starting scan of folder: ${folderPath}`)
+      console.log(`Starting scan of folder: ${folderPath}, copyOnImport: ${copyOnImport}`)
       const files = await scanDirectory(folderPath)
       console.log(`Found ${files.length} files to process`)
+      
+      const musicDir = join(app.getPath('home'), 'BlackBird', 'music')
+      if (copyOnImport && !fs.existsSync(musicDir)) {
+        fs.mkdirSync(musicDir, { recursive: true })
+      }
       
       const chunkSize = 50
       for (let i = 0; i < files.length; i += chunkSize) {
@@ -321,17 +326,27 @@ app.whenReady().then(() => {
         
         await Promise.all(chunk.map(async (file) => {
           try {
-            let dbTrack = dbOps.getTrackByPath(file)
+            let actualFile = file;
+            if (copyOnImport) {
+              const fileName = basename(file);
+              const newPath = join(musicDir, fileName);
+              if (file !== newPath) {
+                fs.copyFileSync(file, newPath);
+                actualFile = newPath;
+              }
+            }
+
+            let dbTrack = dbOps.getTrackByPath(actualFile)
             
             if (!dbTrack) {
-              const metadata = await getMetadata(file, false)
+              const metadata = await getMetadata(actualFile, false)
               const uuid = uuidv4()
               dbTrack = {
                 uuid,
                 title: metadata.title || '',
                 artist: metadata.artist || '',
                 album: metadata.album || '',
-                file_path: file,
+                file_path: actualFile,
                 format: metadata.format || 'unknown',
                 cover: metadata.cover || null,
                 duration: metadata.duration || 0,
@@ -340,7 +355,7 @@ app.whenReady().then(() => {
               }
               dbOps.upsertTrack(dbTrack)
             } else if (!dbTrack.cover || dbTrack.cover === 'null') {
-              const metadata = await getMetadata(file, false)
+              const metadata = await getMetadata(actualFile, false)
               if (metadata.cover) {
                 dbTrack.cover = metadata.cover
                 dbOps.upsertTrack(dbTrack)

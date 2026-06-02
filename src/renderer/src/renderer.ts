@@ -877,9 +877,11 @@ async function handleAddFolder(): Promise<void> {
         </div>
       `
       
+      const copyOnImport = localStorage.getItem('copy-on-import') === 'true'
+      
       for (const p of paths) {
         try {
-          const result = await (window as any).api.scanFolder(p)
+          const result = await (window as any).api.scanFolder(p, copyOnImport)
           console.log(`Scan result for ${p}:`, result)
         } catch (e) {
           console.error(`Failed scanning ${p}:`, e)
@@ -1373,6 +1375,8 @@ async function renderSetupScreen(): Promise<void> {
     console.error('Failed to get app paths:', e)
   }
 
+  const copyOnImport = localStorage.getItem('copy-on-import') === 'true'
+
   contentView.innerHTML = `
     <div class="setup-view" style="max-height: calc(100vh - 200px); overflow-y: auto; padding-right: 8px;">
       <div class="view-header" style="margin-bottom: 28px;">
@@ -1409,6 +1413,19 @@ async function renderSetupScreen(): Promise<void> {
               <div style="font-family: monospace; font-size: 11px; background: rgba(0,0,0,0.15); padding: 8px 12px; border-radius: 8px; color: var(--text-muted); word-break: break-all; border: 1px solid rgba(255,255,255,0.02);">${paths.music}</div>
             </div>
             
+            <!-- Copy on Import Setting -->
+            <div style="display: flex; flex-direction: column; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">Copy Files to Library</div>
+                  <div style="font-size: 12px; color: var(--text-muted);">Automatically create a copy of imported files into the BlackBird data folder.</div>
+                </div>
+                <div style="display: flex; align-items: center;">
+                  <input type="checkbox" id="toggle-copy-import" style="width:18px; height:18px; cursor:pointer;" ${copyOnImport ? 'checked' : ''}>
+                </div>
+              </div>
+            </div>
+
             <!-- Covers Directory -->
             <div style="display: flex; flex-direction: column; gap: 8px;">
               <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
@@ -1566,6 +1583,12 @@ async function renderSetupScreen(): Promise<void> {
     } else if (result && result.error) {
       alert(`Failed to import theme: ${result.error}`)
     }
+  })
+
+  // Handle Copy on Import Toggle
+  document.getElementById('toggle-copy-import')?.addEventListener('change', (e) => {
+    const target = e.target as HTMLInputElement
+    localStorage.setItem('copy-on-import', target.checked ? 'true' : 'false')
   })
 
   // Setup click listener for Sync Folder button

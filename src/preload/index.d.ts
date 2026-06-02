@@ -27,7 +27,7 @@ declare global {
     electron: ElectronAPI
     api: {
       selectFolder: () => Promise<string | null>;
-      scanFolder: (folderPath: string) => Promise<TrackMetadata[]>;
+      scanFolder: (folderPath: string, copyOnImport?: boolean) => Promise<TrackMetadata[]>;
       getPlaylists: () => Promise<Playlist[]>;
       createPlaylist: (name: string) => Promise<string>;
       addToPlaylist: (playlistId: string, trackUuid: string) => Promise<{ error?: string }>;

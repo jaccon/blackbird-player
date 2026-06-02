@@ -4,7 +4,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 // Custom APIs for renderer
 const api = {
   selectFolder: () => ipcRenderer.invoke('select-folder'),
-  scanFolder: (folderPath: string) => ipcRenderer.invoke('scan-folder', folderPath),
+  scanFolder: (folderPath: string, copyOnImport: boolean = false) => ipcRenderer.invoke('scan-folder', { folderPath, copyOnImport }),
   getPlaylists: () => ipcRenderer.invoke('get-playlists'),
   createPlaylist: (name: string) => ipcRenderer.invoke('create-playlist', name),
   addToPlaylist: (playlistId: string, trackUuid: string) => ipcRenderer.invoke('add-to-playlist', { playlistId, trackUuid }),
