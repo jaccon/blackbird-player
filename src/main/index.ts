@@ -353,7 +353,8 @@ app.whenReady().then(() => {
                 cover: metadata.cover || null,
                 duration: metadata.duration || 0,
                 is_favorite: 0,
-                description: metadata.description || ''
+                description: metadata.description || '',
+                lyrics: metadata.lyrics || ''
               }
               dbOps.upsertTrack(dbTrack)
             } else if (!dbTrack.cover || dbTrack.cover === 'null') {
