@@ -392,6 +392,7 @@ export const dbOps = {
 
   getThemes: () => {
     const builtinThemeDir = path.join(app.getAppPath(), 'resources', 'themes');
+    const unpackedThemeDir = app.isPackaged ? path.join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'themes') : builtinThemeDir;
     const userThemeDir = path.join(app.getPath('home'), 'BlackBird', 'themes');
     const themes = new Map();
 
@@ -411,6 +412,7 @@ export const dbOps = {
     };
 
     loadFromDir(builtinThemeDir);
+    if (app.isPackaged) loadFromDir(unpackedThemeDir);
     loadFromDir(userThemeDir);
     
     return Array.from(themes.values());

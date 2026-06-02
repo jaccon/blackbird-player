@@ -99,15 +99,17 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // Register file:// protocol replacement for security/local access if needed
-  protocol.registerFileProtocol('local', (request, callback) => {
+  // Register file:// protocol replacement for security/local access
+  protocol.handle('local', (request) => {
     try {
       const decodedUrl = decodeURIComponent(request.url.replace(/^local:\/\//, ''))
       const withoutParams = decodedUrl.split('?')[0].split('#')[0]
-      callback({ path: withoutParams })
+      // Add the leading slash back for macOS/Linux if it was stripped, Windows handles C:/ fine
+      const finalPath = withoutParams.startsWith('/') || withoutParams.match(/^[a-zA-Z]:\\/) ? withoutParams : '/' + withoutParams
+      return net.fetch('file://' + finalPath)
     } catch (error) {
       console.error('Failed to parse local URL', error)
-      callback({ error: -2 })
+      return new Response('Not Found', { status: 404 })
     }
   })
   // App Menu with Export Settings
