@@ -6,7 +6,10 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin({ exclude: ['music-metadata', 'uuid'] })],
     build: {
       rollupOptions: {
-        external: ['better-sqlite3']
+        external: ['better-sqlite3'],
+        output: {
+          inlineDynamicImports: true
+        }
       }
     }
   },

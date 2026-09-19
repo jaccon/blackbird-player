@@ -38,7 +38,20 @@ const api = {
   importSettings: () => ipcRenderer.invoke('import-settings'),
   getServerStatus: () => ipcRenderer.invoke('get-server-status'),
   startServer: (port?: number) => ipcRenderer.invoke('start-server', port),
-  stopServer: () => ipcRenderer.invoke('stop-server')
+  stopServer: () => ipcRenderer.invoke('stop-server'),
+  // Hidden Files APIs
+  getHiddenTracks: (folderId?: string | null) => ipcRenderer.invoke('get-hidden-tracks', folderId),
+  getHiddenFolders: () => ipcRenderer.invoke('get-hidden-folders'),
+  createHiddenFolder: (name: string) => ipcRenderer.invoke('create-hidden-folder', name),
+  renameHiddenFolder: (id: string, name: string) => ipcRenderer.invoke('rename-hidden-folder', { id, name }),
+  deleteHiddenFolder: (id: string) => ipcRenderer.invoke('delete-hidden-folder', id),
+  moveHiddenTrack: (trackUuid: string, folderId: string | null) => ipcRenderer.invoke('move-hidden-track', { trackUuid, folderId }),
+  hideTracks: (uuids: string[], folderId?: string | null) => ipcRenderer.invoke('hide-tracks', { uuids, folderId }),
+  unhideTracks: (uuids: string[]) => ipcRenderer.invoke('unhide-tracks', uuids),
+  getSetting: (key: string) => ipcRenderer.invoke('get-setting', key),
+  setSetting: (key: string, value: string) => ipcRenderer.invoke('set-setting', { key, value }),
+  importHiddenFiles: (folderId?: string | null) => ipcRenderer.invoke('import-hidden-files', folderId),
+  resetAppData: (options?: { clearCovers?: boolean }) => ipcRenderer.invoke('reset-app-data', options)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

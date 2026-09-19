@@ -11,9 +11,45 @@ export interface TrackMetadata {
   filePath: string;
   fileName: string;
   format: string;
+  mimetype?: string;
+  kind?: string;
   is_favorite?: number;
+  is_hidden?: number;
+  hiddenFolderId?: string | null;
   description?: string;
   lyrics?: string;
+}
+
+export function getTrackExtension(t: TrackMetadata): string {
+  const pathStr = t.filePath || t.fileName || '';
+  if (pathStr.includes('.')) {
+    return pathStr.split('.').pop()?.toLowerCase() || '';
+  }
+  return (t.format || '').toLowerCase();
+}
+
+export function isAudioTrack(t: TrackMetadata): boolean {
+  if (t.mimetype?.startsWith('audio/')) return true;
+  if (t.mimetype?.startsWith('video/') || t.mimetype?.startsWith('image/')) return false;
+  if (t.format === 'youtube') return false;
+  if (t.format === 'stream') return true;
+  const ext = getTrackExtension(t);
+  if (['mp3', 'm4a', 'flac', 'aac', 'wav', 'ogg', 'oga', 'opus', 'wma'].includes(ext)) return true;
+  if (['mp4', 'm4v', 'webm', 'mkv', 'mov', 'avi', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)) return false;
+  return true;
+}
+
+export function isVideoTrack(t: TrackMetadata): boolean {
+  if (t.mimetype?.startsWith('video/')) return true;
+  if (t.format === 'youtube') return true;
+  const ext = getTrackExtension(t);
+  return ['mp4', 'm4v', 'webm', 'mkv', 'mov', 'avi'].includes(ext);
+}
+
+export function isPhotoTrack(t: TrackMetadata): boolean {
+  if (t.mimetype?.startsWith('image/')) return true;
+  const ext = getTrackExtension(t);
+  return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext);
 }
 
 export interface Playlist {
@@ -110,9 +146,15 @@ let btnRadio: HTMLElement
 let btnPhotos: HTMLElement
 let btnSetup: HTMLElement
 let btnServer: HTMLElement
+let btnAbout: HTMLElement
+let btnHiddenFiles: HTMLElement
 let btnToggleFavorite: HTMLElement
 let playlistList: HTMLElement
 let btnNewPlaylist: HTMLElement
+
+// Hidden Vault State
+let isVaultUnlocked = false
+let currentHiddenFolderId: string | null = null
 
 // Modal Elements
 let modalContainer: HTMLElement
@@ -127,6 +169,7 @@ let inputEditAlbum: HTMLInputElement
 let inputEditKind: HTMLInputElement
 let inputEditDescription: HTMLTextAreaElement
 let inputEditLyrics: HTMLTextAreaElement
+let inputEditIsHidden: HTMLInputElement
 let inputEditArtwork: HTMLInputElement
 let previewEditArtwork: HTMLElement
 let currentEditArtworkBase64: string | null = null
@@ -138,6 +181,14 @@ let youtubeModal: HTMLElement
 
 let btnSaveYoutube: HTMLElement
 let inputYTUrl: HTMLInputElement
+
+// Add to Playlist Modal Elements
+let addToPlaylistModal: HTMLElement
+let addToPlaylistModalSubtitle: HTMLElement
+let addToPlaylistItems: HTMLElement
+let inputQuickPlaylistName: HTMLInputElement
+let btnQuickCreateAndAdd: HTMLElement
+let pendingAddToPlaylistUuids: string[] = []
 
 // Radio Modal Elements
 let radioModal: HTMLElement
@@ -217,6 +268,40 @@ async function init(): Promise<void> {
 
     modalContainer = document.getElementById('modal-container')!
     playlistModal = document.getElementById('playlist-modal')!
+    addToPlaylistModal = document.getElementById('add-to-playlist-modal')!
+    addToPlaylistModalSubtitle = document.getElementById('add-to-playlist-modal-subtitle')!
+    addToPlaylistItems = document.getElementById('add-to-playlist-items')!
+    inputQuickPlaylistName = document.getElementById('input-quick-playlist-name') as HTMLInputElement
+    btnQuickCreateAndAdd = document.getElementById('btn-quick-create-and-add')!
+
+    btnQuickCreateAndAdd?.addEventListener('click', async () => {
+      const name = inputQuickPlaylistName.value.trim()
+      if (!name) return
+      if (pendingAddToPlaylistUuids.length === 0) return
+
+      try {
+        const newId = await window.api.createPlaylist(name)
+        let addedCount = 0
+        for (const uuid of pendingAddToPlaylistUuids) {
+          const res = await window.api.addToPlaylist(newId, uuid)
+          if (!res?.error) addedCount++
+        }
+        await loadPlaylists()
+        closeModal()
+        if (typeof (window as any).showRadioToast === 'function') {
+          (window as any).showRadioToast(`Created playlist "${name}" and added ${addedCount} media!`)
+        }
+      } catch (e: any) {
+        alert(`Failed to create playlist: ${e.message}`)
+      }
+    })
+
+    inputQuickPlaylistName?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        btnQuickCreateAndAdd?.click()
+      }
+    })
+
     editModal = document.getElementById('edit-modal')!
     searchInput = document.getElementById('search-input') as HTMLInputElement
     btnSavePlaylist = document.getElementById('btn-save-playlist')!
@@ -235,6 +320,7 @@ async function init(): Promise<void> {
     inputEditKind = document.getElementById('edit-kind') as HTMLInputElement
     inputEditDescription = document.getElementById('edit-description') as HTMLTextAreaElement
     inputEditLyrics = document.getElementById('edit-lyrics') as HTMLTextAreaElement
+    inputEditIsHidden = document.getElementById('edit-is-hidden') as HTMLInputElement
     inputEditArtwork = document.getElementById('edit-artwork-input') as HTMLInputElement
     previewEditArtwork = document.getElementById('edit-artwork-preview')!
 
@@ -253,6 +339,14 @@ async function init(): Promise<void> {
       renderPlaylistsScreen()
     })
     
+    // Hidden Files button click - show Hidden Files vault
+    btnHiddenFiles = document.getElementById('btn-hidden-files')!
+    btnHiddenFiles.addEventListener('click', () => {
+      selectedTrackUuids.clear()
+      setActiveNav('btn-hidden-files')
+      handleOpenHiddenFiles()
+    })
+
     // Setup button click - show Setup screen
     btnSetup.addEventListener('click', () => {
       selectedTrackUuids.clear()
@@ -265,6 +359,14 @@ async function init(): Promise<void> {
       selectedTrackUuids.clear()
       setActiveNav('btn-server')
       renderServerScreen()
+    })
+
+    // About button click - show About screen
+    btnAbout = document.getElementById('btn-about')!
+    btnAbout?.addEventListener('click', () => {
+      selectedTrackUuids.clear()
+      setActiveNav('btn-about')
+      renderAboutScreen()
     })
     btnRadio = document.getElementById('btn-radio')!
     radioModal = document.getElementById('radio-modal')!
@@ -312,7 +414,7 @@ async function init(): Promise<void> {
     updateVolume(80)
     await loadPlaylists()
     await setupThemes()
-    await loadLibrary()
+    await loadLibrary(true)
     attachGlobalKeyboardListeners()
     attachGlobalClickDelegation() 
     await loadSession() 
@@ -324,25 +426,27 @@ async function init(): Promise<void> {
   }
 }
 
-async function loadLibrary(): Promise<void> {
+async function loadLibrary(render: boolean = false): Promise<void> {
   library = await (window as any).api.getLibrary()
-  if (library.length > 0) {
-    const filtered = library.filter(t => {
-      const fmt = (t.format || '').toLowerCase();
-      return fmt.includes('mp3') || fmt.includes('ogg');
-    });
-    currentPlaylist = [...filtered];
-    renderHome();
-  } else {
-    setActiveNav('btn-home')
-    contentView.innerHTML = `
-      <div class="welcome-screen">
-        <h2>No Music Found</h2>
-        <p>Your library is empty. Add a folder with music to get started.</p>
-        <button class="btn-primary large" id="btn-add-folder-hero">Pick a Folder</button>
-      </div>
-    `
-    document.getElementById('btn-add-folder-hero')?.addEventListener('click', handleAddFolder)
+  const mediaOnly = library.filter(isAudioTrack)
+  if (currentPlaylist.length === 0) {
+    currentPlaylist = [...mediaOnly];
+  }
+  if (render) {
+    if (library.length > 0) {
+      currentPlaylist = [...mediaOnly];
+      renderHome();
+    } else {
+      setActiveNav('btn-home')
+      contentView.innerHTML = `
+        <div class="welcome-screen">
+          <h2>No Music Found</h2>
+          <p>Your library is empty. Add a folder with music to get started.</p>
+          <button class="btn-primary large" id="btn-add-folder-hero">Pick a Folder</button>
+        </div>
+      `
+      document.getElementById('btn-add-folder-hero')?.addEventListener('click', handleAddFolder)
+    }
   }
 }
 
@@ -448,6 +552,24 @@ function renderPlaylistSidebar(): void {
   })
 }
 
+function closeModal(): void {
+  modalContainer.classList.add('hidden')
+  playlistModal.classList.add('hidden')
+  addToPlaylistModal?.classList.add('hidden')
+  editModal.classList.add('hidden')
+  youtubeModal.classList.add('hidden')
+  castModal.classList.add('hidden')
+  radioModal.classList.add('hidden')
+  
+  inputPlaylistName.value = ''
+  if (inputQuickPlaylistName) inputQuickPlaylistName.value = ''
+  inputYTUrl.value = ''
+  inputRadioName.value = ''
+  inputRadioUrl.value = ''
+  checkRadioShare.checked = false
+  pendingAddToPlaylistUuids = []
+}
+
 function attachListeners(): void {
 
   btnAddFolderHero?.addEventListener('click', handleAddFolder)
@@ -462,10 +584,7 @@ function attachListeners(): void {
   btnAllSongs.addEventListener('click', () => {
     selectedTrackUuids.clear();
     setActiveNav('btn-all-songs');
-    const filtered = library.filter(t => {
-      const fmt = (t.format || '').toLowerCase();
-      return fmt.includes('mp3') || fmt.includes('ogg');
-    });
+    const filtered = library.filter(isAudioTrack);
     renderTrackList(filtered, 'Musics');
   });
   btnAlbums.addEventListener('click', () => {
@@ -482,10 +601,7 @@ function attachListeners(): void {
   btnAllVideos.addEventListener('click', () => {
     selectedTrackUuids.clear()
     setActiveNav('btn-all-videos')
-    const videos = library.filter(t => {
-      const format = t.format?.toLowerCase() || ''
-      return format.includes('mp4') || format.includes('youtube')
-    })
+    const videos = library.filter(isVideoTrack)
     renderTrackList(videos, 'All Videos')
   })
 
@@ -597,21 +713,6 @@ function attachListeners(): void {
     editModal.classList.add('hidden')
     inputPlaylistName.focus()
   })
-  
-  const closeModal = () => {
-    modalContainer.classList.add('hidden')
-    playlistModal.classList.add('hidden')
-    editModal.classList.add('hidden')
-    youtubeModal.classList.add('hidden')
-    castModal.classList.add('hidden')
-    radioModal.classList.add('hidden')
-    
-    inputPlaylistName.value = ''
-    inputYTUrl.value = ''
-    inputRadioName.value = ''
-    inputRadioUrl.value = ''
-    checkRadioShare.checked = false
-  }
 
   document.querySelectorAll('.btn-cancel-modal, .btn-close-modal').forEach(btn => {
     btn.addEventListener('click', closeModal)
@@ -638,8 +739,9 @@ function attachListeners(): void {
       const artist = (track.artist || '').toLowerCase()
       const album = (track.album || '').toLowerCase()
       const format = (track.format || '').toLowerCase()
+      const kind = (track.kind || '').toLowerCase()
       const description = (track.description || '').toLowerCase()
-      return title.includes(query) || artist.includes(query) || album.includes(query) || format.includes(query) || description.includes(query)
+      return title.includes(query) || artist.includes(query) || album.includes(query) || format.includes(query) || kind.includes(query) || description.includes(query)
     })
 
     renderTrackList(filtered, `Search results for "${query}"`)
@@ -736,7 +838,12 @@ function setActiveNav(target: string | HTMLElement): void {
     li.classList.remove('active')
   })
   const element = typeof target === 'string' ? document.getElementById(target) : target
-  if (element) element.classList.add('active')
+  if (element) {
+    element.classList.add('active')
+    if (element.id !== 'btn-hidden-files') {
+      isVaultUnlocked = false
+    }
+  }
 }
 
 async function handleEditSidebarTrack(trackId?: string): Promise<void> {
@@ -746,18 +853,28 @@ async function handleEditSidebarTrack(trackId?: string): Promise<void> {
     return
   }
   
-  const track = library.find(t => t.uuid === targetUuid) || sidebarTrack
+  let track = library.find(t => t.uuid === targetUuid) || sidebarTrack
+  if (!track) {
+    try {
+      const hidden = await (window as any).api.getHiddenTracks('all')
+      track = hidden.find((t: any) => t.uuid === targetUuid) || null
+    } catch (e) {}
+  }
   if (!track) return
 
   trackBeingEdited = track
   inputEditTitle.value = track.title || track.fileName || ''
   inputEditArtist.value = track.artist || ''
   inputEditAlbum.value = track.album || ''
-  inputEditKind.value = track.format || ''
+  inputEditKind.value = track.kind || track.format || ''
   inputEditDescription.value = track.description || ''
   inputEditLyrics.value = track.lyrics || ''
   inputEditArtwork.value = '' 
   currentEditArtworkBase64 = track.cover || null
+  
+  if (inputEditIsHidden) {
+    inputEditIsHidden.checked = track.is_hidden === 1
+  }
   
   if (track.cover) {
     previewEditArtwork.innerHTML = `<img src="${track.cover}">`
@@ -783,12 +900,20 @@ async function handleSaveEdit(): Promise<void> {
 
   try {
     const updatedMetadata: any = {
-      title: newTitle || track.title,
-      artist: newArtist || track.artist,
-      album: newAlbum || track.album,
-      format: newKind || track.format,
+      title: newTitle !== '' ? newTitle : (track.title || track.fileName || 'Unknown Title'),
+      artist: newArtist,
+      album: newAlbum,
+      kind: newKind !== '' ? newKind : (track.kind || track.format || 'AUDIO'),
+      format: track.format || 'unknown',
       description: newDesc,
       lyrics: inputEditLyrics.value.trim()
+    }
+
+    if (inputEditIsHidden) {
+      updatedMetadata.is_hidden = inputEditIsHidden.checked ? 1 : 0
+      if (updatedMetadata.is_hidden === 1 && !track.hiddenFolderId) {
+        updatedMetadata.hidden_folder_id = null
+      }
     }
 
     if (currentEditArtworkBase64) {
@@ -801,27 +926,63 @@ async function handleSaveEdit(): Promise<void> {
     track.title = updatedMetadata.title
     track.artist = updatedMetadata.artist
     track.album = updatedMetadata.album
+    track.kind = updatedMetadata.kind
     track.format = updatedMetadata.format
     track.description = updatedMetadata.description
     track.lyrics = updatedMetadata.lyrics
+    if (updatedMetadata.is_hidden !== undefined) {
+      track.is_hidden = updatedMetadata.is_hidden
+    }
     
     if (updatedMetadata.cover) {
       track.cover = updatedMetadata.cover
     }
     
-    // Refresh UI
+    await loadLibrary(false)
+
+    // Sync current playlist track if present
+    const playlistIdx = currentPlaylist.findIndex(t => t.uuid === track.uuid)
+    if (playlistIdx !== -1) {
+      currentPlaylist[playlistIdx] = { ...currentPlaylist[playlistIdx], ...track }
+    }
+
+    // Refresh UI & Player Bar
     if (sidebarTrack && sidebarTrack.uuid === track.uuid) {
-      updateSidebarUI(track)
+      sidebarTrack = { ...sidebarTrack, ...track }
+      updateSidebarUI(sidebarTrack)
     } else if (currentTrackIndex >= 0 && currentPlaylist[currentTrackIndex]?.uuid === track.uuid) {
-      updateSidebarUI(track)
+      updateSidebarUI(currentPlaylist[currentTrackIndex])
     }
     
-    renderTrackList(lastTrackListView, lastListViewTitle)
-    
-    // Close modal
-    modalContainer.classList.add('hidden')
-    editModal.classList.add('hidden')
+    closeModal()
     trackBeingEdited = null
+
+    // Refresh Active View
+    if (lastListViewTitle === 'Hidden Files') {
+      await renderHiddenFilesView(currentHiddenFolderId)
+    } else if (document.getElementById('btn-all-songs')?.classList.contains('active') || lastListViewTitle === 'Musics') {
+      const filtered = library.filter(isAudioTrack)
+      renderTrackList(filtered, 'Musics')
+    } else if (document.getElementById('btn-all-videos')?.classList.contains('active') || lastListViewTitle === 'All Videos') {
+      const videos = library.filter(isVideoTrack)
+      renderTrackList(videos, 'All Videos')
+    } else if (document.getElementById('btn-favorites')?.classList.contains('active') || lastListViewTitle === 'My Favorites') {
+      const favs = await (window as any).api.getFavorites()
+      renderTrackList(favs, 'My Favorites')
+    } else if (document.getElementById('btn-albums')?.classList.contains('active')) {
+      renderAlbumGrid()
+    } else if (document.getElementById('btn-artists')?.classList.contains('active')) {
+      renderArtistGrid()
+    } else if (document.getElementById('btn-home')?.classList.contains('active')) {
+      renderHome()
+    } else {
+      const filtered = lastTrackListView.map(item => item.uuid === track.uuid ? { ...item, ...track } : item).filter(item => item.is_hidden !== 1)
+      renderTrackList(filtered, lastListViewTitle)
+    }
+
+    if (typeof (window as any).showRadioToast === 'function') {
+      (window as any).showRadioToast('Track metadata saved!')
+    }
   } catch (err) {
     console.error('Failed to update track:', err)
     alert('Failed to save changes.')
@@ -830,6 +991,126 @@ async function handleSaveEdit(): Promise<void> {
 
 // Make it global for absolute reliability
 ;(window as any).handleEditSidebarTrack = handleEditSidebarTrack
+
+async function handleOpenAddToPlaylistModal(trackUuidOrUuids: string | string[]): Promise<void> {
+  pendingAddToPlaylistUuids = Array.isArray(trackUuidOrUuids) ? trackUuidOrUuids : [trackUuidOrUuids]
+  if (pendingAddToPlaylistUuids.length === 0) return
+
+  if (pendingAddToPlaylistUuids.length === 1) {
+    const track = library.find(t => t.uuid === pendingAddToPlaylistUuids[0]) || sidebarTrack
+    const title = track?.title || track?.fileName || 'Selected media'
+    addToPlaylistModalSubtitle.textContent = `Attach "${title}" to playlist:`
+  } else {
+    addToPlaylistModalSubtitle.textContent = `Attach ${pendingAddToPlaylistUuids.length} selected media items to playlist:`
+  }
+
+  if (inputQuickPlaylistName) inputQuickPlaylistName.value = ''
+
+  // Make sure playlists are loaded
+  if (!userPlaylists || userPlaylists.length === 0) {
+    try {
+      userPlaylists = await window.api.getPlaylists()
+    } catch (e) {}
+  }
+
+  // Render Playlists List
+  if (!userPlaylists || userPlaylists.length === 0) {
+    addToPlaylistItems.innerHTML = `
+      <div style="padding: 24px 16px; text-align: center; color: var(--text-muted); font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+        <i data-lucide="list-plus" style="width: 28px; height: 28px; opacity: 0.4;"></i>
+        <span>No playlists created yet. Type a name above to create your first playlist!</span>
+      </div>
+    `
+  } else {
+    addToPlaylistItems.innerHTML = userPlaylists.map(pl => `
+      <div class="add-to-pl-row" data-id="${pl.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+        <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; flex: 1;">
+          <div style="width: 32px; height: 32px; border-radius: var(--radius-sm); background: rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <i data-lucide="list-music" style="width: 16px; height: 16px; color: var(--accent);"></i>
+          </div>
+          <div style="overflow: hidden; padding-right: 8px;">
+            <div style="font-size: 13px; font-weight: 600; color: var(--text-main); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${pl.name}</div>
+            <div style="font-size: 11px; color: var(--text-muted);">${pl.trackCount || 0} tracks • ${pl.totalDuration ? formatTime(pl.totalDuration) : '0:00'}</div>
+          </div>
+        </div>
+        <button class="btn-primary small" style="pointer-events: none; padding: 4px 12px; font-size: 11px; flex-shrink: 0;">Add</button>
+      </div>
+    `).join('')
+
+    addToPlaylistItems.querySelectorAll('.add-to-pl-row').forEach(row => {
+      row.addEventListener('click', async () => {
+        const playlistId = row.getAttribute('data-id')!
+        const pl = userPlaylists.find(p => p.id === playlistId)
+        let addedCount = 0
+        let lastError = ''
+        for (const uuid of pendingAddToPlaylistUuids) {
+          const res = await window.api.addToPlaylist(playlistId, uuid)
+          if (res?.error) {
+            lastError = res.error
+          } else {
+            addedCount++
+          }
+        }
+        await loadPlaylists()
+        closeModal()
+        if (typeof (window as any).showRadioToast === 'function') {
+          if (addedCount > 0) {
+            (window as any).showRadioToast(`Added ${addedCount} media to "${pl?.name || 'Playlist'}"!`)
+          } else if (lastError) {
+            (window as any).showRadioToast(lastError)
+          }
+        }
+      })
+    })
+  }
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  modalContainer.classList.remove('hidden')
+  addToPlaylistModal.classList.remove('hidden')
+  playlistModal.classList.add('hidden')
+  editModal.classList.add('hidden')
+  youtubeModal.classList.add('hidden')
+  castModal.classList.add('hidden')
+  radioModal.classList.add('hidden')
+  inputQuickPlaylistName?.focus()
+}
+;(window as any).handleOpenAddToPlaylistModal = handleOpenAddToPlaylistModal
+
+async function handleRemoveFromCurrentPlaylist(playlistId: string, trackUuid: string): Promise<void> {
+  try {
+    await window.api.removeFromPlaylist(playlistId, trackUuid)
+    await loadPlaylists()
+    const tracks = await window.api.getPlaylistTracks(playlistId)
+    const plName = userPlaylists.find(p => p.id === playlistId)?.name || 'Playlist'
+    renderTrackList(tracks, `Playlist: ${plName}`)
+    if (typeof (window as any).showRadioToast === 'function') {
+      (window as any).showRadioToast('Removed from playlist!')
+    }
+  } catch (err: any) {
+    console.error('Failed to remove from playlist:', err)
+  }
+}
+;(window as any).handleRemoveFromCurrentPlaylist = handleRemoveFromCurrentPlaylist
+
+async function handleQuickHideTrack(uuid: string): Promise<void> {
+  try {
+    await (window as any).api.hideTracks([uuid])
+    await loadLibrary(false)
+    lastTrackListView = lastTrackListView.filter(t => t.uuid !== uuid)
+    if (lastListViewTitle === 'Hidden Files') {
+      await renderHiddenFilesView(currentHiddenFolderId)
+    } else {
+      renderTrackList(lastTrackListView, lastListViewTitle)
+    }
+    if (typeof (window as any).showRadioToast === 'function') {
+      (window as any).showRadioToast('Arquivo movido para Hidden Files!')
+    }
+  } catch (e) {
+    console.error('Failed to hide track:', e)
+  }
+}
+;(window as any).handleQuickHideTrack = handleQuickHideTrack
 
 async function handleToggleListFavorite(trackId: string): Promise<void> {
   const libTrack = library.find(t => t.uuid === trackId)
@@ -887,12 +1168,16 @@ async function handleAddFolder(): Promise<void> {
           console.error(`Failed scanning ${p}:`, e)
         }
       }
-      await loadLibrary()
+      await loadLibrary(true)
+      setActiveNav('btn-home')
+      renderHome()
     }
   } catch (error) {
     console.error('Error in handleAddFolder:', error)
     alert('Failed to add media. Check console for details.')
-    await loadLibrary() // Restore UI state
+    await loadLibrary(true)
+    setActiveNav('btn-home')
+    renderHome()
   }
 }
 
@@ -946,58 +1231,111 @@ async function handleSaveYoutube(): Promise<void> {
 
 async function renderHome(): Promise<void> {
   setActiveNav('btn-home')
-  // 1. Get recently played tracks (up to 10) from play history
+  lastListViewTitle = 'Home'
+
+  let stats: any = {
+    hoursListenedLastMonth: 0,
+    totalTracks: 0,
+    totalAlbums: 0,
+    topFormat: 'None',
+    topTracks: [],
+    favoriteTypes: [],
+    activeHours: [],
+    totalSize: 0
+  }
   let recentlyPlayed: any[] = []
+
   try {
-    const historyItems = await (window as any).api.getPlayHistory()
-    // The history contains duplicate plays, let's keep only unique track UUIDs but in order of latest play
-    const uniqueUuids = new Set<string>()
-    const uniquePlayed: any[] = []
-    for (const item of historyItems) {
-      if (!uniqueUuids.has(item.uuid)) {
-        uniqueUuids.add(item.uuid)
-        uniquePlayed.push(item)
-        if (uniquePlayed.length >= 10) break
-      }
+    const [statsResult, historyItems] = await Promise.all([
+      (window as any).api.getStatistics().catch((e: any) => {
+        console.error('Failed to get statistics:', e)
+        return null
+      }),
+      (window as any).api.getPlayHistory().catch((e: any) => {
+        console.error('Failed to get play history:', e)
+        return []
+      })
+    ])
+
+    if (statsResult) {
+      stats = statsResult
     }
-    recentlyPlayed = uniquePlayed
+
+    if (historyItems && Array.isArray(historyItems)) {
+      const uniqueUuids = new Set<string>()
+      const uniquePlayed: any[] = []
+      for (const item of historyItems) {
+        if (!uniqueUuids.has(item.uuid)) {
+          uniqueUuids.add(item.uuid)
+          uniquePlayed.push(item)
+          if (uniquePlayed.length >= 8) break
+        }
+      }
+      recentlyPlayed = uniquePlayed
+    }
   } catch (e) {
-    console.error('Failed to load home play history:', e)
+    console.error('Failed to load dashboard data:', e)
   }
 
-  // 2. Get recently added media tracks (up to 10) from the library (excluding images)
-  const mediaOnly = library.filter(t => {
-    const fmt = (t.format || '').toLowerCase()
-    return !['jpg', 'jpeg', 'png', 'gif'].includes(fmt)
-  })
-  // slice(-10) gets the last 10, reverse() puts newest first
-  const recentlyAdded = mediaOnly.slice(-10).reverse()
+  // Get recently added media tracks (up to 8) from the library (excluding images)
+  const mediaOnly = library.filter(isAudioTrack)
+  const recentlyAdded = mediaOnly.slice(-8).reverse()
+  const topTracksList = (stats.topTracks || []).slice(0, 8)
 
-  // Update navigation title state
-  lastListViewTitle = 'Home'
+  let topTracksHtml = ''
+  if (topTracksList.length === 0) {
+    topTracksHtml = `
+      <div style="padding: 28px; color: var(--text-muted); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+        <i data-lucide="bar-chart-2" style="width: 28px; height: 28px; opacity: 0.4;"></i>
+        <p style="font-size: 13px;">No track playback recorded yet.</p>
+      </div>
+    `
+  } else {
+    topTracksHtml = topTracksList.map((track: any, idx: number) => `
+      <div class="dashboard-track-item top-track-item" data-index="${idx}" data-uuid="${track.uuid}" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; margin-bottom: 6px; border: 1px solid transparent;">
+        <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; flex: 1;">
+          <span style="font-size: 12px; font-weight: 700; color: ${idx < 3 ? 'var(--accent)' : 'var(--text-muted)'}; width: 18px; text-align: center; flex-shrink: 0;">${idx + 1}</span>
+          <div style="width: 32px; height: 32px; border-radius: 50%; overflow: hidden; background: var(--glass); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.15); container-type: size; position: relative;">
+            ${(createPlaceholderMarkup as any)(track.title || track.fileName || 'Unknown')}
+            ${(track.cover && track.cover !== 'null') ? `<img src="${track.cover}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10;" onerror="this.style.display='none';" />` : ''}
+          </div>
+          <div style="overflow: hidden; padding-right: 8px;">
+            <div style="font-size: 13px; font-weight: 600; color: var(--text-main); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.title || track.fileName || 'Unknown Title'}</div>
+            <div style="font-size: 11px; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.artist || 'Unknown Artist'}</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+          <span class="tag small" style="background: var(--glass); color: var(--accent); font-size: 11px; padding: 2px 8px; border-radius: 12px;">${track.playCount} plays</span>
+          <button class="btn-icon circle-small btn-play-dashboard" style="background: var(--accent-hover); color: #fff; border: none; opacity: 0; transition: all 0.2s;">
+            <i data-lucide="play" style="width: 12px; height: 12px; fill: currentColor;"></i>
+          </button>
+        </div>
+      </div>
+    `).join('')
+  }
 
   let playedHtml = ''
   if (recentlyPlayed.length === 0) {
     playedHtml = `
-      <div style="padding: 32px; color: var(--text-muted); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px;">
-        <i data-lucide="clock" style="width: 32px; height: 32px; opacity: 0.5;"></i>
+      <div style="padding: 28px; color: var(--text-muted); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+        <i data-lucide="clock" style="width: 28px; height: 28px; opacity: 0.4;"></i>
         <p style="font-size: 13px;">No listening history recorded yet.</p>
       </div>
     `
   } else {
     playedHtml = recentlyPlayed.map((track, idx) => `
-      <div class="dashboard-track-item recently-played-item" data-index="${idx}" data-uuid="${track.uuid}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; margin-bottom: 8px; border: 1px solid transparent;">
+      <div class="dashboard-track-item recently-played-item" data-index="${idx}" data-uuid="${track.uuid}" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; margin-bottom: 6px; border: 1px solid transparent;">
         <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; flex: 1;">
           <div style="width: 32px; height: 32px; border-radius: 50%; overflow: hidden; background: var(--glass); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.15); container-type: size; position: relative;">
             ${(createPlaceholderMarkup as any)(track.title || track.fileName || 'Unknown')}
             ${(track.cover && track.cover !== 'null') ? `<img src="${track.cover}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10;" onerror="this.style.display='none';" />` : ''}
           </div>
           <div style="overflow: hidden; padding-right: 8px;">
-            <div style="font-size: 14px; font-weight: 600; color: var(--text-main); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.title || track.fileName || 'Unknown Title'}</div>
-            <div style="font-size: 12px; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.artist || 'Unknown Artist'}</div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--text-main); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.title || track.fileName || 'Unknown Title'}</div>
+            <div style="font-size: 11px; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.artist || 'Unknown Artist'}</div>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
           <span style="font-size: 12px; color: var(--text-muted); font-family: monospace;">${formatTime(track.duration || 0)}</span>
           <button class="btn-icon circle-small btn-play-dashboard" style="background: var(--accent-hover); color: #fff; border: none; opacity: 0; transition: all 0.2s;">
             <i data-lucide="play" style="width: 12px; height: 12px; fill: currentColor;"></i>
@@ -1010,25 +1348,25 @@ async function renderHome(): Promise<void> {
   let addedHtml = ''
   if (recentlyAdded.length === 0) {
     addedHtml = `
-      <div style="padding: 32px; color: var(--text-muted); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px;">
-        <i data-lucide="folder-plus" style="width: 32px; height: 32px; opacity: 0.5;"></i>
+      <div style="padding: 28px; color: var(--text-muted); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+        <i data-lucide="folder-plus" style="width: 28px; height: 28px; opacity: 0.4;"></i>
         <p style="font-size: 13px;">Your library is empty. Import some media!</p>
       </div>
     `
   } else {
     addedHtml = recentlyAdded.map((track, idx) => `
-      <div class="dashboard-track-item recently-added-item" data-index="${idx}" data-uuid="${track.uuid}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; margin-bottom: 8px; border: 1px solid transparent;">
+      <div class="dashboard-track-item recently-added-item" data-index="${idx}" data-uuid="${track.uuid}" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; margin-bottom: 6px; border: 1px solid transparent;">
         <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; flex: 1;">
           <div style="width: 32px; height: 32px; border-radius: 50%; overflow: hidden; background: var(--glass); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.15); container-type: size; position: relative;">
             ${(createPlaceholderMarkup as any)(track.title || track.fileName || 'Unknown')}
             ${(track.cover && track.cover !== 'null') ? `<img src="${track.cover}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10;" onerror="this.style.display='none';" />` : ''}
           </div>
           <div style="overflow: hidden; padding-right: 8px;">
-            <div style="font-size: 14px; font-weight: 600; color: var(--text-main); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.title || track.fileName || 'Unknown Title'}</div>
-            <div style="font-size: 12px; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.artist || 'Unknown Artist'}</div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--text-main); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.title || track.fileName || 'Unknown Title'}</div>
+            <div style="font-size: 11px; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">${track.artist || 'Unknown Artist'}</div>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
           <span style="font-size: 12px; color: var(--text-muted); font-family: monospace;">${formatTime(track.duration || 0)}</span>
           <button class="btn-icon circle-small btn-play-dashboard" style="background: var(--accent-hover); color: #fff; border: none; opacity: 0; transition: all 0.2s;">
             <i data-lucide="play" style="width: 12px; height: 12px; fill: currentColor;"></i>
@@ -1038,28 +1376,140 @@ async function renderHome(): Promise<void> {
     `).join('')
   }
 
+  // Activity breakdown HTML
+  const activeHoursHtml = (() => {
+    if (!stats.activeHours || stats.activeHours.length === 0) {
+      return '<div style="color: var(--text-muted); font-size: 13px; padding: 12px 0;">No listening activity recorded yet.</div>'
+    }
+    const maxCount = Math.max(...stats.activeHours.map((h: any) => h.count)) || 1
+    return stats.activeHours.map((hourObj: any) => {
+      const percentage = (hourObj.count / maxCount) * 100
+      return `
+        <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+            <span style="font-weight: 600; color: var(--text-main);">${hourObj.hour}:00 - ${parseInt(hourObj.hour) + 1}:00</span>
+            <span style="color: var(--text-muted);">${hourObj.count} plays</span>
+          </div>
+          <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden;">
+            <div style="width: ${percentage}%; height: 100%; background: var(--accent); border-radius: 4px;"></div>
+          </div>
+        </div>
+      `
+    }).join('')
+  })()
+
+  const favoriteFormatsHtml = (() => {
+    if (!stats.favoriteTypes || stats.favoriteTypes.length === 0) {
+      return '<div style="color: var(--text-muted); font-size: 13px;">No favorited tracks yet.</div>'
+    }
+    return stats.favoriteTypes.slice(0, 4).map((type: any) => `
+      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; margin-bottom: 8px;">
+        <span style="text-transform: uppercase; font-weight: 600; color: var(--text-main);">${type.format || 'Unknown'}</span>
+        <span class="tag small" style="background: var(--glass); color: var(--text-muted);">${type.count} tracks</span>
+      </div>
+    `).join('')
+  })()
+
   contentView.innerHTML = `
-    <div class="home-view">
-      <div class="view-header" style="margin-bottom: 24px;">
-        <h2 class="view-title">Home</h2>
-        <p class="view-subtitle">Welcome back to your music dashboard</p>
+    <div class="home-view" style="height: 100%; overflow-y: auto; padding-right: 4px;">
+      <div class="view-header" style="margin-bottom: 20px;">
+        <h2 class="view-title">Dashboard</h2>
+        <p class="view-subtitle">Overview of your music library, statistics, and quick playback</p>
       </div>
 
-      <div class="home-dashboard" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; overflow-y: auto; max-height: calc(100vh - 250px); padding-right: 8px;">
-        <!-- Left Column: Recently Played -->
+      <!-- Quick Metrics Statistics Cards -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
+        <!-- Listening Time -->
+        <div class="stats-card" style="background: var(--glass); padding: 18px 20px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.06); display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600;">Listening Time</span>
+            <i data-lucide="headphones" style="width: 16px; height: 16px; color: var(--accent); opacity: 0.8;"></i>
+          </div>
+          <div style="font-size: 28px; font-weight: 700; color: var(--accent);">${(stats.hoursListenedLastMonth || 0).toFixed(1)} <span style="font-size: 13px; font-weight: 400; color: var(--text-main);">hrs</span></div>
+          <div style="color: var(--text-muted); font-size: 11px;">Last 30 days playback</div>
+        </div>
+
+        <!-- Library Size -->
+        <div class="stats-card" style="background: var(--glass); padding: 18px 20px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.06); display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600;">Library Collection</span>
+            <i data-lucide="music" style="width: 16px; height: 16px; color: var(--accent); opacity: 0.8;"></i>
+          </div>
+          <div style="font-size: 28px; font-weight: 700; color: var(--text-main);">${stats.totalTracks || library.length} <span style="font-size: 13px; font-weight: 400; color: var(--text-muted);">tracks</span></div>
+          <div style="color: var(--text-muted); font-size: 11px;">Across ${stats.totalAlbums || 0} unique albums</div>
+        </div>
+
+        <!-- Favorite Format -->
+        <div class="stats-card" style="background: var(--glass); padding: 18px 20px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.06); display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600;">Top Format</span>
+            <i data-lucide="disc" style="width: 16px; height: 16px; color: var(--accent); opacity: 0.8;"></i>
+          </div>
+          <div style="font-size: 28px; font-weight: 700; color: var(--accent); text-transform: uppercase;">${stats.topFormat || 'Audio'}</div>
+          <div style="color: var(--text-muted); font-size: 11px;">Most played format</div>
+        </div>
+
+        <!-- Total Storage -->
+        <div class="stats-card" style="background: var(--glass); padding: 18px 20px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.06); display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600;">Storage Used</span>
+            <i data-lucide="hard-drive" style="width: 16px; height: 16px; color: var(--accent); opacity: 0.8;"></i>
+          </div>
+          <div style="font-size: 28px; font-weight: 700; color: var(--text-main);">${stats.totalSize ? formatBytes(stats.totalSize) : `${library.length} files`}</div>
+          <div style="color: var(--text-muted); font-size: 11px;">Total media files size</div>
+        </div>
+      </div>
+
+      <!-- Dashboard Sections Grid -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 24px;">
+        <!-- Top Listened Tracks -->
         <div class="dashboard-section" style="background: var(--glass); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 20px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
-          <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 16px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
-            <i data-lucide="clock" style="width: 18px; height: 18px;"></i> Recently Played
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+            <h3 style="font-size: 15px; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+              <i data-lucide="flame" style="width: 17px; height: 17px;"></i> Most Listened Tracks
+            </h3>
+            <span style="font-size: 11px; color: var(--text-muted);">Top Plays</span>
+          </div>
+          <div class="home-track-list" id="home-top-tracks-list">
+            ${topTracksHtml}
+          </div>
+        </div>
+
+        <!-- Listening Insights & Activity -->
+        <div class="dashboard-section" style="background: var(--glass); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 20px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px); display: flex; flex-direction: column; gap: 16px;">
+          <div>
+            <h3 style="font-size: 15px; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
+              <i data-lucide="activity" style="width: 17px; height: 17px;"></i> Peak Activity Hours
+            </h3>
+            <div>
+              ${activeHoursHtml}
+            </div>
+          </div>
+
+          <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 14px;">
+            <h3 style="font-size: 15px; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
+              <i data-lucide="heart" style="width: 17px; height: 17px;"></i> Favorited Formats
+            </h3>
+            <div>
+              ${favoriteFormatsHtml}
+            </div>
+          </div>
+        </div>
+
+        <!-- Recently Played -->
+        <div class="dashboard-section" style="background: var(--glass); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 20px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 14px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+            <i data-lucide="clock" style="width: 17px; height: 17px;"></i> Recently Played
           </h3>
           <div class="home-track-list" id="home-recently-played-list">
             ${playedHtml}
           </div>
         </div>
 
-        <!-- Right Column: Recently Added -->
+        <!-- Recently Added -->
         <div class="dashboard-section" style="background: var(--glass); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 20px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
-          <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 16px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
-            <i data-lucide="folder-plus" style="width: 18px; height: 18px;"></i> Recently Added
+          <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 14px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+            <i data-lucide="folder-plus" style="width: 17px; height: 17px;"></i> Recently Added
           </h3>
           <div class="home-track-list" id="home-recently-added-list">
             ${addedHtml}
@@ -1080,18 +1530,38 @@ async function renderHome(): Promise<void> {
         opacity: 1 !important;
         transform: scale(1.05);
       }
+      .stats-card {
+        transition: transform 0.2s ease, border-color 0.2s ease;
+      }
+      .stats-card:hover {
+        transform: translateY(-2px);
+        border-color: rgba(255, 255, 255, 0.12) !important;
+      }
     </style>
   `
 
   if ((window as any).lucide) (window as any).lucide.createIcons()
 
   // Setup click listeners for playback
+  document.querySelectorAll('.top-track-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const idx = parseInt(item.getAttribute('data-index')!)
+      const track = topTracksList[idx]
+      if (track) {
+        const hydratedTopTracks = topTracksList.map(t => library.find(lib => lib.uuid === t.uuid) || t)
+        currentPlaylist = hydratedTopTracks
+        playTrack(idx)
+      }
+    })
+  })
+
   document.querySelectorAll('.recently-played-item').forEach(item => {
     item.addEventListener('click', () => {
       const idx = parseInt(item.getAttribute('data-index')!)
       const track = recentlyPlayed[idx]
       if (track) {
-        currentPlaylist = recentlyPlayed
+        const hydratedPlayed = recentlyPlayed.map(t => library.find(lib => lib.uuid === t.uuid) || t)
+        currentPlaylist = hydratedPlayed
         playTrack(idx)
       }
     })
@@ -1121,10 +1591,7 @@ async function handleDeletePhoto(uuid: string): Promise<void> {
 ;(window as any).handleDeletePhoto = handleDeletePhoto
 
 function renderPhotosView(): void {
-  const images = library.filter(t => {
-    const fmt = (t.format || '').toLowerCase()
-    return ['jpg', 'jpeg', 'png', 'gif'].includes(fmt)
-  })
+  const images = library.filter(isPhotoTrack)
 
   let contentHtml = ''
   if (images.length === 0) {
@@ -1144,9 +1611,14 @@ function renderPhotosView(): void {
           <div class="photo-overlay" style="position: absolute; inset: 0; background: rgba(0,0,0,0.6); opacity: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 12px; transition: opacity 0.3s ease; backdrop-filter: blur(2px);">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <span style="font-size: 10px; background: rgba(255,255,255,0.15); color: #fff; padding: 2px 6px; border-radius: 6px; text-transform: uppercase; font-weight: 600;">${img.format || 'IMG'}</span>
-              <button class="btn-delete-photo btn-icon circle-small" style="background: rgba(255,75,75,0.2); border: none; color: #ff4b4b; cursor: pointer; transition: all 0.2s;" onclick="event.stopPropagation(); window.handleDeletePhoto('${img.uuid}')">
-                <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
-              </button>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <button class="btn-icon circle-small" style="background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; transition: all 0.2s;" title="Add to Playlist" onclick="event.stopPropagation(); window.handleOpenAddToPlaylistModal('${img.uuid}')">
+                  <i data-lucide="list-plus" style="width: 14px; height: 14px;"></i>
+                </button>
+                <button class="btn-delete-photo btn-icon circle-small" style="background: rgba(255,75,75,0.2); border: none; color: #ff4b4b; cursor: pointer; transition: all 0.2s;" onclick="event.stopPropagation(); window.handleDeletePhoto('${img.uuid}')">
+                  <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                </button>
+              </div>
             </div>
             <div class="photo-details">
               <div style="font-size: 12px; font-weight: 600; color: #fff; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${img.title || img.fileName}</div>
@@ -1376,12 +1848,15 @@ async function renderSetupScreen(): Promise<void> {
   }
 
   const copyOnImport = localStorage.getItem('copy-on-import') === 'true'
+  const isPasswordEnabled = (await (window as any).api.getSetting('hidden_files_enabled')) === 'true'
+  const currentPassword = await (window as any).api.getSetting('hidden_files_password')
+  const hasPassword = Boolean(currentPassword)
 
   contentView.innerHTML = `
     <div class="setup-view" style="max-height: calc(100vh - 200px); overflow-y: auto; padding-right: 8px;">
       <div class="view-header" style="margin-bottom: 28px;">
         <h2 class="view-title">Setup & Configuration</h2>
-        <p class="view-subtitle">Manage paths, media storage, databases, and backup files for BlackBird</p>
+        <p class="view-subtitle">Manage paths, media storage, databases, hidden files password, and backup files for BlackBird</p>
       </div>
 
       <div style="display: grid; grid-template-columns: 1fr; gap: 24px;">
@@ -1443,7 +1918,47 @@ async function renderSetupScreen(): Promise<void> {
           </div>
         </div>
 
-        <!-- Section 2: Configuration & Database -->
+        <!-- Section 2: Password to Hidden Files -->
+        <div style="background: var(--glass); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 18px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+            <i data-lucide="shield-check" style="width: 18px; height: 18px;"></i> Password to Hidden Files
+          </h3>
+          
+          <div style="display: flex; flex-direction: column; gap: 20px;">
+            
+            <!-- Enable Password Protection Toggle -->
+            <div style="display: flex; flex-direction: column; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">Protect Hidden Files with Password</div>
+                  <div style="font-size: 12px; color: var(--text-muted);">When enabled, access to the Hidden Files menu requires entering your security password.</div>
+                </div>
+                <div style="display: flex; align-items: center;">
+                  <input type="checkbox" id="toggle-hidden-password" style="width:18px; height:18px; cursor:pointer;" ${isPasswordEnabled ? 'checked' : ''}>
+                </div>
+              </div>
+            </div>
+
+            <!-- Password Configuration Form -->
+            <div id="hidden-password-config" style="display: ${isPasswordEnabled ? 'flex' : 'none'}; flex-direction: column; gap: 14px;">
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="font-size: 14px; font-weight: 600; color: var(--text-main);">Set or Change Security Password</div>
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                  <input type="password" id="input-hidden-password" placeholder="Enter new password..." style="flex: 1; min-width: 200px; background: var(--bg-card); border: 1px solid var(--border); padding: 10px 14px; border-radius: var(--radius-md); color: var(--text-main); font-family: inherit; font-size: 14px; outline: none;">
+                  <button class="btn-primary" id="btn-save-hidden-password" style="padding: 10px 20px; font-weight: 600; white-space: nowrap; border: none; cursor: pointer; border-radius: var(--radius-md);">
+                    Save Password
+                  </button>
+                </div>
+                <div id="hidden-password-status" style="font-size: 12px; color: ${hasPassword ? '#10b981' : '#f59e0b'}; font-weight: 500; margin-top: 4px;">
+                  ${hasPassword ? '✓ Password is set and active.' : '⚠️ No password configured. Please set a password above.'}
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Section 3: Configuration & Database -->
         <div style="background: var(--glass); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
           <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 18px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
             <i data-lucide="settings" style="width: 18px; height: 18px;"></i> App Settings & Database files
@@ -1482,7 +1997,7 @@ async function renderSetupScreen(): Promise<void> {
           </div>
         </div>
 
-        <!-- Section 3: Appearance & Themes -->
+        <!-- Section 4: Appearance & Themes -->
         <div style="background: var(--glass); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
           <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 18px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
             <i data-lucide="palette" style="width: 18px; height: 18px;"></i> Visual Appearance
@@ -1525,7 +2040,7 @@ async function renderSetupScreen(): Promise<void> {
           </div>
         </div>
 
-        <!-- Section 3: Backup & Info -->
+        <!-- Section 5: Backup & Info -->
         <div style="background: var(--glass); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
           <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 12px; color: var(--accent); display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
             <i data-lucide="info" style="width: 18px; height: 18px;"></i> Backups & Settings Management
@@ -1552,6 +2067,25 @@ async function renderSetupScreen(): Promise<void> {
                 <i data-lucide="upload" style="width: 16px;"></i> Import Backup
               </button>
             </div>
+          </div>
+        </div>
+
+        <!-- Section 6: Factory Reset & Start From Scratch -->
+        <div style="background: rgba(239, 68, 68, 0.04); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 16px; padding: 24px; box-shadow: var(--shadow-sm); backdrop-filter: blur(10px);">
+          <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 12px; color: #ef4444; display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+            <i data-lucide="alert-triangle" style="width: 18px; height: 18px;"></i> Reset All Settings & Start From Scratch
+          </h3>
+          <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 18px;">
+            Clear all configuration files, wipe database records, delete playlists, clear playback history, remove hidden files password, empty cover cache, and restart BlackBird from scratch.
+          </p>
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; background: rgba(0,0,0,0.25); padding: 16px 20px; border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.15);">
+            <div>
+              <div style="font-size: 14px; font-weight: 600; color: var(--text-main);">Wipe Database & Reset Preferences</div>
+              <div style="font-size: 12px; color: var(--text-muted);">Permanently resets the application state. Original media files on your disk will NOT be touched.</div>
+            </div>
+            <button class="btn-danger" id="btn-reset-app-data" style="display: flex; align-items: center; gap: 8px; padding: 11px 22px; border-radius: 10px; font-weight: 600; cursor: pointer; white-space: nowrap; border: none;">
+              <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i> Clear Data & Start From Zero
+            </button>
           </div>
         </div>
 
@@ -1591,6 +2125,39 @@ async function renderSetupScreen(): Promise<void> {
     localStorage.setItem('copy-on-import', target.checked ? 'true' : 'false')
   })
 
+  // Handle Password to Hidden Files Toggle & Configuration
+  const toggleHiddenPassword = document.getElementById('toggle-hidden-password') as HTMLInputElement
+  const hiddenPasswordConfig = document.getElementById('hidden-password-config') as HTMLElement
+  const inputHiddenPassword = document.getElementById('input-hidden-password') as HTMLInputElement
+  const btnSaveHiddenPassword = document.getElementById('btn-save-hidden-password') as HTMLButtonElement
+  const hiddenPasswordStatus = document.getElementById('hidden-password-status') as HTMLElement
+
+  toggleHiddenPassword?.addEventListener('change', async () => {
+    const enabled = toggleHiddenPassword.checked
+    await (window as any).api.setSetting('hidden_files_enabled', enabled ? 'true' : 'false')
+    if (hiddenPasswordConfig) {
+      hiddenPasswordConfig.style.display = enabled ? 'flex' : 'none'
+    }
+    if (!enabled) {
+      isVaultUnlocked = false
+    }
+  })
+
+  btnSaveHiddenPassword?.addEventListener('click', async () => {
+    const newPwd = inputHiddenPassword.value.trim()
+    if (!newPwd) {
+      alert('Please enter a valid password.')
+      return
+    }
+    await (window as any).api.setSetting('hidden_files_password', newPwd)
+    inputHiddenPassword.value = ''
+    if (hiddenPasswordStatus) {
+      hiddenPasswordStatus.textContent = '✓ Password saved successfully!'
+      hiddenPasswordStatus.style.color = '#10b981'
+    }
+    alert('Hidden files password configured successfully!')
+  })
+
   // Setup click listener for Sync Folder button
   document.getElementById('btn-sync-folder')?.addEventListener('click', async () => {
     const btn = document.getElementById('btn-sync-folder') as HTMLButtonElement
@@ -1609,7 +2176,7 @@ async function renderSetupScreen(): Promise<void> {
       if (result && result.error) {
         alert(`Error during synchronization: ${result.error}`)
       } else {
-        await loadLibrary()
+        await loadLibrary(false)
         alert('Folder synchronized successfully! All local tracks and photos have been updated.')
       }
     } catch (e) {
@@ -1667,6 +2234,438 @@ async function renderSetupScreen(): Promise<void> {
       console.error('Failed to import settings:', e)
       alert('Failed to import backup data.')
     }
+  })
+
+  // Setup click listener for Factory Reset / Start From Scratch button
+  document.getElementById('btn-reset-app-data')?.addEventListener('click', async () => {
+    const confirmation = confirm('⚠️ ATENÇÃO: Esta ação irá apagar todas as configurações, músicas indexadas, histórico, playlists, arquivos ocultos e cache do aplicativo para começar o setup do zero.\n\nSeus arquivos de música no computador NÃO serão apagados.\n\nDeseja realmente continuar e resetar tudo?')
+    if (!confirmation) return
+
+    const secondConfirm = confirm('Por favor confirme mais uma vez: Tem certeza absoluta que deseja resetar todos os dados e começar do zero?')
+    if (!secondConfirm) return
+
+    try {
+      const res = await (window as any).api.resetAppData({ clearCovers: true })
+      if (res && res.success) {
+        localStorage.clear()
+        alert('✅ Todos os dados e arquivos de configuração foram limpos com sucesso! O aplicativo será recarregado do zero.')
+        location.reload()
+      } else {
+        alert(`Erro ao limpar dados: ${res?.error || 'Erro desconhecido'}`)
+      }
+    } catch (e: any) {
+      console.error('Erro ao resetar aplicativo:', e)
+      alert(`Falha ao resetar aplicativo: ${e.message}`)
+    }
+  })
+}
+
+// ---------------- Hidden Files & Vault Handlers ----------------
+
+async function handleOpenHiddenFiles(): Promise<void> {
+  const isEnabled = (await (window as any).api.getSetting('hidden_files_enabled')) === 'true'
+  const password = await (window as any).api.getSetting('hidden_files_password')
+
+  if (isEnabled && password) {
+    isVaultUnlocked = false
+    renderVaultUnlockScreen()
+  } else {
+    currentHiddenFolderId = null
+    await renderHiddenFilesView(null)
+  }
+}
+
+function renderVaultUnlockScreen(): void {
+  lastListViewTitle = 'Hidden Files'
+  contentView.innerHTML = `
+    <div class="hidden-vault-view">
+      <div class="vault-lock-container">
+        <div class="vault-lock-card">
+          <div class="vault-lock-icon">
+            <i data-lucide="lock" style="width: 32px; height: 32px;"></i>
+          </div>
+          <h2 style="font-size: 22px; font-weight: 700; color: var(--text-main); margin-bottom: 8px;">Hidden Files Vault</h2>
+          <p style="font-size: 14px; color: var(--text-muted); line-height: 1.5; margin-bottom: 24px;">
+            This area is password protected. Please enter your security password to access your hidden files and folders.
+          </p>
+          
+          <form id="vault-unlock-form" style="width: 100%; display: flex; flex-direction: column; gap: 14px;">
+            <div style="position: relative; width: 100%;">
+              <input type="password" id="vault-password-input" placeholder="Enter vault password..." autofocus style="width: 100%; background: var(--glass); border: 1px solid var(--border); padding: 12px 16px; border-radius: var(--radius-md); color: var(--text-main); font-family: inherit; font-size: 15px; outline: none; transition: border-color 0.2s;">
+            </div>
+            
+            <div id="vault-error-msg" style="display: none; color: #ff4c4c; font-size: 13px; font-weight: 600; text-align: left;">
+              Incorrect password. Please try again.
+            </div>
+
+            <div style="display: flex; gap: 12px; margin-top: 8px;">
+              <button type="button" id="btn-cancel-unlock" class="btn-secondary" style="flex: 1; padding: 12px; font-weight: 600; border-radius: var(--radius-md);">
+                Cancel
+              </button>
+              <button type="submit" id="btn-submit-unlock" class="btn-primary" style="flex: 2; padding: 12px; font-weight: 600; border-radius: var(--radius-md); border: none; cursor: pointer;">
+                Unlock Vault
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  const form = document.getElementById('vault-unlock-form') as HTMLFormElement
+  const input = document.getElementById('vault-password-input') as HTMLInputElement
+  const errorMsg = document.getElementById('vault-error-msg')!
+  const btnCancel = document.getElementById('btn-cancel-unlock')!
+
+  input?.focus()
+
+  btnCancel?.addEventListener('click', () => {
+    setActiveNav('btn-home')
+    renderHome()
+  })
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const entered = input.value
+    const stored = await (window as any).api.getSetting('hidden_files_password')
+
+    if (entered === stored) {
+      isVaultUnlocked = true
+      currentHiddenFolderId = null
+      await renderHiddenFilesView(null)
+    } else {
+      errorMsg.style.display = 'block'
+      input.style.borderColor = '#ff4c4c'
+      input.value = ''
+      input.focus()
+    }
+  })
+}
+
+async function renderHiddenFilesView(folderId: string | null = null): Promise<void> {
+  lastListViewTitle = 'Hidden Files'
+  currentHiddenFolderId = folderId
+
+  const isEnabled = (await (window as any).api.getSetting('hidden_files_enabled')) === 'true'
+  const password = await (window as any).api.getSetting('hidden_files_password')
+
+  if (isEnabled && password && !isVaultUnlocked) {
+    renderVaultUnlockScreen()
+    return
+  }
+
+  let folders: any[] = []
+  let tracks: any[] = []
+
+  try {
+    folders = await (window as any).api.getHiddenFolders()
+    tracks = await (window as any).api.getHiddenTracks(folderId)
+  } catch (e) {
+    console.error('Failed to load hidden files data:', e)
+  }
+
+  const currentFolder = folderId ? folders.find(f => f.id === folderId) : null
+  const pageTitle = currentFolder ? currentFolder.name : 'Hidden Files'
+
+  contentView.innerHTML = `
+    <div class="hidden-vault-view">
+      <!-- Header -->
+      <div class="view-header" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          ${folderId ? `
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+              <button id="btn-back-hidden-root" class="btn-secondary" data-folder-id="" style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px; font-weight: 600; border-radius: 8px;" title="Back to All Folders (Drop tracks here to move out of folder)">
+                <i data-lucide="arrow-left" style="width: 14px; height: 14px;"></i> All Folders
+              </button>
+              <span style="color: var(--text-muted); font-size: 13px;">/</span>
+              <span style="color: var(--text-main); font-weight: 600; font-size: 13px;">${pageTitle}</span>
+            </div>
+          ` : ''}
+          <h2 class="view-title" style="display: flex; align-items: center; gap: 10px;">
+            <i data-lucide="lock" style="color: var(--accent); width: 24px; height: 24px;"></i>
+            ${folderId ? pageTitle : 'Hidden Files Vault'}
+          </h2>
+          <p class="view-subtitle">${folderId ? `Viewing items inside "${pageTitle}"` : 'Private media repository with folders and drag-and-drop organization'}</p>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <button class="btn-primary" id="btn-new-hidden-folder" style="display: flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 10px; font-weight: 600; border: none; cursor: pointer;">
+            <i data-lucide="folder-plus" style="width: 15px; height: 15px;"></i> New Folder
+          </button>
+          <button class="btn-secondary" id="btn-import-hidden-files" style="display: flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 10px; font-weight: 600;">
+            <i data-lucide="upload" style="width: 15px; height: 15px;"></i> Import to Hidden
+          </button>
+          ${isEnabled && password ? `
+            <button class="btn-secondary" id="btn-lock-vault" style="display: flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 10px; font-weight: 600; color: #ff4c4c;" title="Lock Vault">
+              <i data-lucide="lock" style="width: 15px; height: 15px;"></i> Lock
+            </button>
+          ` : ''}
+        </div>
+      </div>
+
+      <!-- Root View: Folders Grid -->
+      ${!folderId ? `
+        <div style="margin-bottom: 24px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+            <h3 style="font-size: 15px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">
+              Folders (${folders.length})
+            </h3>
+            <span style="font-size: 12px; color: var(--text-muted);">Drag any track onto a folder card to move it</span>
+          </div>
+
+          <div class="hidden-folder-grid">
+            ${folders.length === 0 ? `
+              <div style="grid-column: 1 / -1; padding: 24px; border: 1px dashed var(--border); border-radius: var(--radius-md); text-align: center; color: var(--text-muted); font-size: 13px;">
+                No folders created yet. Click <strong>+ New Folder</strong> to organize your hidden files.
+              </div>
+            ` : folders.map(f => `
+              <div class="hidden-folder-card" data-folder-id="${f.id}" data-folder-name="${f.name}">
+                <div class="hidden-folder-icon">
+                  <i data-lucide="folder" style="width: 22px; height: 22px;"></i>
+                </div>
+                <div class="hidden-folder-info">
+                  <div class="hidden-folder-name" title="${f.name}">${f.name}</div>
+                  <div class="hidden-folder-count">${f.trackCount || 0} items</div>
+                </div>
+                <div class="hidden-folder-actions">
+                  <button class="btn-icon circle-small btn-rename-folder" data-id="${f.id}" data-name="${f.name}" title="Rename Folder" style="width: 26px; height: 26px;">
+                    <i data-lucide="edit-2" style="width: 12px; height: 12px;"></i>
+                  </button>
+                  <button class="btn-icon circle-small btn-delete-folder" data-id="${f.id}" data-name="${f.name}" title="Delete Folder" style="width: 26px; height: 26px; color: #ff4c4c;">
+                    <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : `
+        <!-- Folder Dropzone -->
+        <div class="hidden-dropzone" data-folder-id="${folderId}">
+          <i data-lucide="arrow-down-to-dot" style="width: 18px; height: 18px; color: var(--accent);"></i>
+          <span>Drop tracks here to place in <strong>${pageTitle}</strong>, or drag onto the <strong>All Folders</strong> button to move out.</span>
+        </div>
+      `}
+
+      <!-- Tracks List Section -->
+      <div style="margin-top: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+          <h3 style="font-size: 15px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">
+            ${folderId ? `Files in this Folder (${tracks.length})` : `Unfiled & Hidden Media (${tracks.length})`}
+          </h3>
+          ${tracks.length > 0 ? `<span style="font-size: 12px; color: var(--text-muted);">Click to play • Drag to organize</span>` : ''}
+        </div>
+
+        <div class="track-list" style="padding-top: 4px;">
+          ${tracks.length === 0 ? `
+            <div style="padding: 40px; text-align: center; color: var(--text-muted); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--glass);">
+              <i data-lucide="lock" style="width: 36px; height: 36px; opacity: 0.3; margin-bottom: 10px;"></i>
+              <p style="font-size: 14px;">No hidden files found here.</p>
+              <p style="font-size: 12px; margin-top: 4px;">Use "Import to Hidden" or edit metadata on any track in your library to hide it.</p>
+            </div>
+          ` : tracks.map((track, index) => `
+            <div class="track-item hidden-track-item" draggable="true" data-uuid="${track.uuid}" data-index="${index}" style="grid-template-columns: 36px 36px 36px 1fr 140px 180px; gap: 12px; align-items: center; padding: 10px 14px; border-radius: var(--radius-md);">
+              <div class="drag-handle" style="display: flex; align-items: center; justify-content: center; color: var(--text-muted); cursor: grab;">
+                <i data-lucide="grip-vertical" style="width: 16px; height: 16px;"></i>
+              </div>
+              <div class="track-num" style="font-size: 13px; font-weight: 600;">${index + 1}</div>
+              <div style="width:34px; height:34px; border-radius:50%; background:rgba(0,0,0,0.2); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; position: relative;">
+                ${(createPlaceholderMarkup as any)(track.title || track.fileName || 'Unknown')}
+                ${(track.cover && track.cover !== 'null') ? `<img src="${track.cover}" style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:10;" onerror="this.style.display='none';">` : ''}
+              </div>
+              <div class="track-name-cell" style="overflow: hidden;">
+                <div class="track-name" style="font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${track.title || track.fileName || 'Unknown Title'}</div>
+                <div class="track-list-artist" style="font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${track.artist || 'Unknown Artist'}</div>
+              </div>
+              <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">${track.format || 'Media'}</div>
+              <div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
+                <button class="btn-icon circle-small btn-unhide-track" data-uuid="${track.uuid}" title="Restore to regular library" style="width: 28px; height: 28px;">
+                  <i data-lucide="eye" style="width: 14px; height: 14px;"></i>
+                </button>
+                <select class="select-move-track" data-uuid="${track.uuid}" style="background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; font-size: 11px; outline: none; cursor: pointer; max-width: 100px;">
+                  <option value="" ${!track.hiddenFolderId ? 'selected' : ''}>Root</option>
+                  ${folders.map(f => `<option value="${f.id}" ${track.hiddenFolderId === f.id ? 'selected' : ''}>${f.name}</option>`).join('')}
+                </select>
+                <button class="btn-icon circle-small btn-delete-hidden-track" data-uuid="${track.uuid}" title="Delete file permanently" style="width: 28px; height: 28px; color: #ff4c4c;">
+                  <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                </button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  // Attach Top Button Listeners
+  document.getElementById('btn-lock-vault')?.addEventListener('click', () => {
+    isVaultUnlocked = false
+    setActiveNav('btn-home')
+    renderHome()
+  })
+
+  document.getElementById('btn-new-hidden-folder')?.addEventListener('click', async () => {
+    const name = prompt('Enter a name for the new hidden folder:')
+    if (name && name.trim()) {
+      await (window as any).api.createHiddenFolder(name.trim())
+      await renderHiddenFilesView(folderId)
+    }
+  })
+
+  document.getElementById('btn-import-hidden-files')?.addEventListener('click', async () => {
+    const res = await (window as any).api.importHiddenFiles(folderId)
+    if (res && res.success) {
+      await loadLibrary(false)
+      await renderHiddenFilesView(folderId)
+      if (typeof (window as any).showRadioToast === 'function') {
+        (window as any).showRadioToast(`Imported ${res.count} hidden media files!`)
+      }
+    }
+  })
+
+  // Folder Navigation & Card Actions
+  document.querySelectorAll('.hidden-folder-card').forEach(card => {
+    const targetFolderId = card.getAttribute('data-folder-id')!
+
+    card.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement
+      if (target.closest('.btn-rename-folder') || target.closest('.btn-delete-folder')) {
+        return
+      }
+      renderHiddenFilesView(targetFolderId)
+    })
+  })
+
+  // Back Button Navigation
+  document.getElementById('btn-back-hidden-root')?.addEventListener('click', () => {
+    renderHiddenFilesView(null)
+  })
+
+  // Folder Rename & Delete
+  document.querySelectorAll('.btn-rename-folder').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      const id = btn.getAttribute('data-id')!
+      const currentName = btn.getAttribute('data-name')!
+      const newName = prompt('Rename hidden folder:', currentName)
+      if (newName && newName.trim() && newName.trim() !== currentName) {
+        await (window as any).api.renameHiddenFolder(id, newName.trim())
+        await renderHiddenFilesView(folderId)
+      }
+    })
+  })
+
+  document.querySelectorAll('.btn-delete-folder').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      const id = btn.getAttribute('data-id')!
+      const name = btn.getAttribute('data-name')!
+      if (confirm(`Are you sure you want to delete the folder "${name}"? Files inside will be moved to unfiled hidden files.`)) {
+        await (window as any).api.deleteHiddenFolder(id)
+        await renderHiddenFilesView(folderId === id ? null : folderId)
+      }
+    })
+  })
+
+  // Track playback on click
+  document.querySelectorAll('.hidden-track-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement
+      if (target.closest('button') || target.closest('select') || target.closest('.drag-handle')) {
+        return
+      }
+      const idx = parseInt(item.getAttribute('data-index')!)
+      if (tracks[idx]) {
+        currentPlaylist = tracks
+        playTrack(idx)
+      }
+    })
+  })
+
+  // Track Actions: Unhide, Move, Delete
+  document.querySelectorAll('.btn-unhide-track').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      const uuid = btn.getAttribute('data-uuid')!
+      await (window as any).api.unhideTracks([uuid])
+      await loadLibrary(false)
+      await renderHiddenFilesView(folderId)
+      if (typeof (window as any).showRadioToast === 'function') {
+        (window as any).showRadioToast('File restored to regular library!')
+      }
+    })
+  })
+
+  document.querySelectorAll('.select-move-track').forEach(select => {
+    select.addEventListener('change', async (e) => {
+      e.stopPropagation()
+      const targetSelect = select as HTMLSelectElement
+      const uuid = targetSelect.getAttribute('data-uuid')!
+      const targetFId = targetSelect.value || null
+      await (window as any).api.moveHiddenTrack(uuid, targetFId)
+      await renderHiddenFilesView(folderId)
+    })
+  })
+
+  document.querySelectorAll('.btn-delete-hidden-track').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      const uuid = btn.getAttribute('data-uuid')!
+      if (confirm('Are you sure you want to permanently delete this file?')) {
+        await (window as any).api.deleteTracks([uuid])
+        await loadLibrary(false)
+        await renderHiddenFilesView(folderId)
+      }
+    })
+  })
+
+  // ---------------- Drag & Drop Implementation ----------------
+
+  // Draggable items
+  document.querySelectorAll('.hidden-track-item').forEach(item => {
+    item.addEventListener('dragstart', (e: any) => {
+      const uuid = item.getAttribute('data-uuid')!
+      e.dataTransfer.setData('text/plain', uuid)
+      e.dataTransfer.effectAllowed = 'move'
+      item.classList.add('is-dragging')
+    })
+
+    item.addEventListener('dragend', () => {
+      item.classList.remove('is-dragging')
+    })
+  })
+
+  // Folder drop targets (Folder cards, Back button, and Dropzones)
+  const dropTargets = document.querySelectorAll('.hidden-folder-card, .hidden-dropzone, #btn-back-hidden-root')
+  dropTargets.forEach(target => {
+    target.addEventListener('dragover', (e: any) => {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      target.classList.add('drag-target-hover')
+    })
+
+    target.addEventListener('dragleave', () => {
+      target.classList.remove('drag-target-hover')
+    })
+
+    target.addEventListener('drop', async (e: any) => {
+      e.preventDefault()
+      target.classList.remove('drag-target-hover')
+      const trackUuid = e.dataTransfer.getData('text/plain')
+      const targetFolder = target.getAttribute('data-folder-id') || null
+
+      if (trackUuid) {
+        await (window as any).api.moveHiddenTrack(trackUuid, targetFolder)
+        if (typeof (window as any).showRadioToast === 'function') {
+          (window as any).showRadioToast('Item moved successfully!')
+        }
+        await renderHiddenFilesView(folderId)
+      }
+    })
   })
 }
 
@@ -1811,6 +2810,9 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
   }
 
   const totalDuration = tracks.reduce((acc, t) => acc + (t.duration || 0), 0)
+  const currentViewingPlaylistId = title.startsWith('Playlist:') 
+    ? userPlaylists.find(p => `Playlist: ${p.name}` === title)?.id 
+    : null
 
   contentView.innerHTML = `
     <div class="track-list-view">
@@ -1826,6 +2828,12 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
       
       <div id="selection-bar" class="selection-bar ${selectedTrackUuids.size > 0 ? '' : 'hidden'}">
         <span id="selection-count">${selectedTrackUuids.size} tracks selected</span>
+        <button class="btn-secondary small" id="btn-add-selected-to-playlist" style="display:flex; align-items:center; gap:6px;">
+          <i data-lucide="list-plus"></i> Add to Playlist
+        </button>
+        <button class="btn-secondary small" id="btn-hide-selected" style="display:flex; align-items:center; gap:6px;">
+          <i data-lucide="eye-off"></i> Hide Selected
+        </button>
         <button class="btn-danger small" id="btn-delete-selected">
           <i data-lucide="trash-2"></i> Delete Selected
         </button>
@@ -1850,11 +2858,22 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
                 <div class="track-list-path" style="font-size: 10px; color: var(--text-muted); opacity: 0.6; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${track.filePath || ''}">${track.filePath || ''}</div>
               </div>
               <div class="track-album-cell">${track.album || 'Unknown Album'}</div>
-              <div class="track-kind-cell" style="font-size: 13px; color: var(--text-muted); text-transform: uppercase;">${track.format || 'Unknown'}</div>
-              <div class="track-duration" style="display:flex; align-items:center; justify-content:flex-end; gap:16px;">
+              <div class="track-kind-cell" style="font-size: 13px; color: var(--text-muted); text-transform: uppercase;">${track.kind || track.format || 'Unknown'}</div>
+              <div class="track-duration" style="display:flex; align-items:center; justify-content:flex-end; gap:12px;">
                  ${formatTime(track.duration || 0)}
                  <button class="btn-icon circle-small btn-favorite-list-item" data-uuid="${track.uuid}" title="Toggle Favorite" style="transition:all 0.2s; background:var(--glass); color:${track.is_favorite ? 'var(--primary)' : 'inherit'};" onclick="event.stopPropagation(); window.handleToggleListFavorite('${track.uuid}')">
                    <i data-lucide="heart" ${track.is_favorite ? 'fill="currentColor"' : ''}></i>
+                 </button>
+                 <button class="btn-icon circle-small btn-add-playlist-item" data-uuid="${track.uuid}" title="Add to Playlist" style="transition:all 0.2s; background:var(--glass);" onclick="event.stopPropagation(); window.handleOpenAddToPlaylistModal('${track.uuid}')">
+                   <i data-lucide="list-plus"></i>
+                 </button>
+                 ${currentViewingPlaylistId ? `
+                   <button class="btn-icon circle-small btn-remove-playlist-item" data-uuid="${track.uuid}" title="Remove from Playlist" style="transition:all 0.2s; background:rgba(255,75,75,0.15); color:#ff4b4b;" onclick="event.stopPropagation(); window.handleRemoveFromCurrentPlaylist('${currentViewingPlaylistId}', '${track.uuid}')">
+                     <i data-lucide="list-minus"></i>
+                   </button>
+                 ` : ''}
+                 <button class="btn-icon circle-small btn-hide-list-item" data-uuid="${track.uuid}" title="Hide File (Move to Hidden Files)" style="transition:all 0.2s; background:var(--glass);" onclick="event.stopPropagation(); window.handleQuickHideTrack('${track.uuid}')">
+                   <i data-lucide="eye-off"></i>
                  </button>
                  <button class="btn-icon circle-small btn-edit-list-item" data-uuid="${track.uuid}" title="Edit Metadata" style="transition:all 0.2s; background:var(--glass);" onclick="event.stopPropagation(); window.handleEditSidebarTrack('${track.uuid}')">
                    <i data-lucide="edit"></i>
@@ -1892,13 +2911,11 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
           item.classList.add('selected')
         }
       } else if (mouseEvent.shiftKey && selectedTrackUuids.size > 0) {
-        // Range selection (simple implementation)
+        // Shift select range
         const allItems = Array.from(document.querySelectorAll('.track-item'))
-        const lastSelectedUuid = Array.from(selectedTrackUuids).pop()!
-        const lastSelectedIndex = allItems.findIndex(i => i.getAttribute('data-uuid') === lastSelectedUuid)
-        
-        const start = Math.min(lastSelectedIndex, index)
-        const end = Math.max(lastSelectedIndex, index)
+        const firstSelectedIndex = allItems.findIndex(i => selectedTrackUuids.has(i.getAttribute('data-uuid')!))
+        const start = Math.min(firstSelectedIndex, index)
+        const end = Math.max(firstSelectedIndex, index)
         
         for (let i = start; i <= end; i++) {
           const itemToSelect = allItems[i]
@@ -1908,10 +2925,6 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
         }
       } else {
         // Normal click: select just this one and play if double clicked or just stay selected
-        // For better UX, single click selects, double click plays
-        // But the previous behavior was single click plays. 
-        // Let's make single click select, but if it was already selected, we play? 
-        // Or just keep it simple: single click selects and plays (spotify style mostly)
         if (!selectedTrackUuids.has(uuid)) {
           document.querySelectorAll('.track-item.selected').forEach(i => i.classList.remove('selected'))
           selectedTrackUuids.clear()
@@ -1934,7 +2947,36 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
     })
   })
 
-  document.getElementById('btn-delete-selected')?.addEventListener('click', handleDeleteSelected)
+  // Hook up Add Selected to Playlist button
+  document.getElementById('btn-add-selected-to-playlist')?.addEventListener('click', () => {
+    if (selectedTrackUuids.size === 0) return
+    handleOpenAddToPlaylistModal(Array.from(selectedTrackUuids))
+  })
+
+  // Hook up Hide Selected button
+  document.getElementById('btn-hide-selected')?.addEventListener('click', async () => {
+    if (selectedTrackUuids.size === 0) return
+    const uuids = Array.from(selectedTrackUuids)
+    await (window as any).api.hideTracks(uuids)
+    selectedTrackUuids.clear()
+    await loadLibrary(false)
+    lastTrackListView = lastTrackListView.filter(t => !uuids.includes(t.uuid))
+    renderTrackList(lastTrackListView, lastListViewTitle)
+    if (typeof (window as any).showRadioToast === 'function') {
+      (window as any).showRadioToast(`Moved ${uuids.length} files to Hidden Files!`)
+    }
+  })
+
+  // Hook up Delete Selected button
+  document.getElementById('btn-delete-selected')?.addEventListener('click', async () => {
+    if (selectedTrackUuids.size === 0) return
+    if (confirm(`Are you sure you want to delete ${selectedTrackUuids.size} selected tracks?`)) {
+      await window.api.deleteTracks(Array.from(selectedTrackUuids))
+      selectedTrackUuids.clear()
+      await loadLibrary(false)
+      renderTrackList(library, 'Musics')
+    }
+  })
 
   document.getElementById('btn-clear-selection')?.addEventListener('click', () => {
     selectedTrackUuids.clear()
@@ -1953,7 +2995,7 @@ function updateSidebarUI(track: TrackMetadata): void {
   playerTitle.textContent = displayName
   playerArtist.textContent = track.artist ?? 'Unknown Artist'
   playerAlbum.textContent = track.album ?? 'Unknown Album'
-  playerFormat.textContent = track.format?.toUpperCase() || 'AUDIO'
+  playerFormat.textContent = track.kind || track.format?.toUpperCase() || 'AUDIO'
 
   playerArtwork.style.position = 'relative'
   const artworkHTML = (createPlaceholderMarkup as any)(displayName) + 
@@ -2263,41 +3305,49 @@ function renderStatistics(stats: any): void {
     <div class="stats-view-scrollable">
       <div class="view-header">
         <h2 class="view-title">Your Statistics</h2>
-        <p class="view-subtitle">Insights into your listening habits</p>
+        <p class="view-subtitle">Insights into your listening habits and media collection</p>
       </div>
 
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; margin-bottom: 32px;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 32px;">
         <!-- Listening Time -->
-        <div style="background: var(--bg-card); padding: 24px; border-radius: var(--radius-lg); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
-          <h3 style="color: var(--text-muted); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Listening Time (Last 30 Days)</h3>
-          <div style="font-size: 36px; font-weight: 700; color: var(--accent);">${stats.hoursListenedLastMonth.toFixed(1)} <span style="font-size: 13px; font-weight: 400;">hrs</span></div>
-          <div style="color: var(--text-muted); font-size: 13px;">Music played locally</div>
+        <div style="background: var(--bg-card); padding: 22px; border-radius: var(--radius-lg); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
+          <h3 style="color: var(--text-muted); font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Listening Time (Last 30 Days)</h3>
+          <div style="font-size: 34px; font-weight: 700; color: var(--accent);">${(stats.hoursListenedLastMonth || 0).toFixed(1)} <span style="font-size: 13px; font-weight: 400;">hrs</span></div>
+          <div style="color: var(--text-muted); font-size: 12px;">Music played locally</div>
         </div>
 
         <!-- Library Size -->
-        <div style="background: var(--bg-card); padding: 24px; border-radius: var(--radius-lg); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
-          <h3 style="color: var(--text-muted); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Library Size</h3>
-          <div style="font-size: 36px; font-weight: 700; color: var(--accent);">${stats.totalTracks || 0} <span style="font-size: 13px; font-weight: 400;">tracks</span></div>
-          <div style="color: var(--text-muted); font-size: 13px;">Across ${stats.totalAlbums || 0} unique albums</div>
+        <div style="background: var(--bg-card); padding: 22px; border-radius: var(--radius-lg); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
+          <h3 style="color: var(--text-muted); font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Library Size</h3>
+          <div style="font-size: 34px; font-weight: 700; color: var(--accent);">${stats.totalTracks || library.length} <span style="font-size: 13px; font-weight: 400;">tracks</span></div>
+          <div style="color: var(--text-muted); font-size: 12px;">Across ${stats.totalAlbums || 0} unique albums</div>
         </div>
 
         <!-- Favorite Format -->
-        <div style="background: var(--bg-card); padding: 24px; border-radius: var(--radius-lg); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
-          <h3 style="color: var(--text-muted); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Favorite Audio Format</h3>
-          <div style="font-size: 36px; font-weight: 700; color: var(--accent); text-transform: uppercase;">${stats.topFormat}</div>
-          <div style="color: var(--text-muted); font-size: 13px;">Most frequently played file type</div>
+        <div style="background: var(--bg-card); padding: 22px; border-radius: var(--radius-lg); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
+          <h3 style="color: var(--text-muted); font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Favorite Audio Format</h3>
+          <div style="font-size: 34px; font-weight: 700; color: var(--accent); text-transform: uppercase;">${stats.topFormat || 'Audio'}</div>
+          <div style="color: var(--text-muted); font-size: 12px;">Most frequently played file type</div>
+        </div>
+
+        <!-- Total Storage -->
+        <div style="background: var(--bg-card); padding: 22px; border-radius: var(--radius-lg); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
+          <h3 style="color: var(--text-muted); font-size: 13px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Storage Footprint</h3>
+          <div style="font-size: 34px; font-weight: 700; color: var(--accent);">${stats.totalSize ? formatBytes(stats.totalSize) : `${library.length} files`}</div>
+          <div style="color: var(--text-muted); font-size: 12px;">Total media files size</div>
         </div>
       </div>
 
       <div class="stats-grid-2-1">
         <!-- Top Tracks -->
         <div style="background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border); overflow: hidden;">
-          <div style="padding: 24px; border-bottom: 1px solid var(--border);">
-            <h3 style="font-size: 18px; font-weight: 600;">Top 10 Most Listened Tracks</h3>
+          <div style="padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="font-size: 17px; font-weight: 600;">Top 10 Most Listened Tracks</h3>
+            <span style="font-size: 12px; color: var(--text-muted);">Click any track to play</span>
           </div>
           <div class="track-list" style="padding: 12px;">
             ${stats.topTracks.length > 0 ? stats.topTracks.map((track: any, index: number) => `
-              <div class="track-item" style="cursor: default; grid-template-columns: 40px 32px 1fr 120px; gap: 12px;" data-uuid="${track.uuid}">
+              <div class="track-item stats-top-track-item" style="cursor: pointer; grid-template-columns: 40px 32px 1fr 120px; gap: 12px;" data-uuid="${track.uuid}" data-index="${index}">
                 <div class="track-num">${index + 1}</div>
                 <div style="width:32px; height:32px; border-radius:50%; background:rgba(0,0,0,0.2); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; container-type: size; position: relative;">
                   ${(createPlaceholderMarkup as any)(track.title || track.fileName || 'Unknown')}
@@ -2309,7 +3359,7 @@ function renderStatistics(stats: any): void {
                   <div class="track-list-path" style="font-size: 10px; color: var(--text-muted); opacity: 0.6; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${track.filePath || ''}">${track.filePath || ''}</div>
                 </div>
                 <div class="track-album-cell" style="flex: 1; display:flex; align-items: center; justify-content: flex-end; padding-right: 0;">
-                  <span class="tag small" style="background: var(--glass); color: var(--accent);">${track.playCount} Plays</span>
+                  <span class="tag small" style="background: var(--glass); color: var(--accent); font-size: 11px; padding: 3px 8px; border-radius: 10px;">${track.playCount} Plays</span>
                 </div>
               </div>
             `).join('') : '<div style="padding: 24px; color: var(--text-muted);">No play history recorded yet.</div>'}
@@ -2319,35 +3369,35 @@ function renderStatistics(stats: any): void {
         <div style="display: flex; flex-direction: column; gap: 24px;">
           <!-- Favorite Types Breakdown -->
           <div style="background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border); overflow: hidden; height: fit-content;">
-            <div style="padding: 24px; border-bottom: 1px solid var(--border);">
-              <h3 style="font-size: 18px; font-weight: 600;">Favorited Formats</h3>
+            <div style="padding: 20px 24px; border-bottom: 1px solid var(--border);">
+              <h3 style="font-size: 17px; font-weight: 600;">Favorited Formats</h3>
             </div>
-            <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+            <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 14px;">
               ${stats.favoriteTypes.length > 0 ? stats.favoriteTypes.map((type: any) => `
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                  <span style="text-transform: uppercase; font-weight: 600; color: var(--text-main);">${type.format || 'Unknown'}</span>
-                  <span style="color: var(--text-muted);">${type.count} tracks</span>
+                  <span style="text-transform: uppercase; font-weight: 600; color: var(--text-main); font-size: 13px;">${type.format || 'Unknown'}</span>
+                  <span style="color: var(--text-muted); font-size: 13px;">${type.count} tracks</span>
                 </div>
-              `).join('') : '<div style="color: var(--text-muted);">No favorited tracks yet.</div>'}
+              `).join('') : '<div style="color: var(--text-muted); font-size: 13px;">No favorited tracks yet.</div>'}
             </div>
           </div>
           
           <!-- Most Active Hours -->
           <div style="background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border); overflow: hidden; height: fit-content;">
-            <div style="padding: 24px; border-bottom: 1px solid var(--border);">
-              <h3 style="font-size: 18px; font-weight: 600;">Most Active Hours</h3>
+            <div style="padding: 20px 24px; border-bottom: 1px solid var(--border);">
+              <h3 style="font-size: 17px; font-weight: 600;">Most Active Hours</h3>
             </div>
-            <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+            <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 14px;">
               ${(() => {
-                if (!stats.activeHours || stats.activeHours.length === 0) return '<div style="color: var(--text-muted);">No activity recorded yet.</div>';
+                if (!stats.activeHours || stats.activeHours.length === 0) return '<div style="color: var(--text-muted); font-size: 13px;">No activity recorded yet.</div>';
                 const maxCount = Math.max(...stats.activeHours.map((h: any) => h.count));
                 return stats.activeHours.map((hourObj: any) => {
                   const percentage = (hourObj.count / maxCount) * 100;
                   return `
-                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
                       <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
                         <span style="font-weight: 600; color: var(--text-main);">${hourObj.hour}:00 - ${parseInt(hourObj.hour) + 1}:00</span>
-                        <span style="color: var(--text-muted);">${hourObj.count} plays</span>
+                        <span style="color: var(--text-muted); font-size: 12px;">${hourObj.count} plays</span>
                       </div>
                       <div style="width: 100%; height: 6px; background: var(--glass); border-radius: 4px; overflow: hidden;">
                         <div style="width: ${percentage}%; height: 100%; background: var(--accent); border-radius: 4px;"></div>
@@ -2362,9 +3412,23 @@ function renderStatistics(stats: any): void {
       </div>
     </div>
   `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  document.querySelectorAll('.stats-top-track-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const idx = parseInt(item.getAttribute('data-index')!)
+      const track = stats.topTracks[idx]
+      if (track) {
+        const hydrated = stats.topTracks.map((t: any) => library.find(lib => lib.uuid === t.uuid) || t)
+        currentPlaylist = hydrated
+        playTrack(idx)
+      }
+    })
+  })
 }
 
-function playTrack(index: number): void {
+function playTrack(index: number, resumePosition?: number): void {
   // If playing a regular track from library, reset radio mode
   if (!currentPlaylist[index]?.filePath?.startsWith('http') && !currentPlaylist[index]?.format?.includes('stream')) {
     isRadioMode = false
@@ -2372,6 +3436,18 @@ function playTrack(index: number): void {
 
   if (index < 0 || index >= currentPlaylist.length) return
   
+  // If user clicked on the current track and it's already loaded and paused, simply resume playback
+  const isVideo = !videoOverlay.classList.contains('hidden')
+  const currentPlayer = isVideo ? videoPlayer : audio
+  if (currentTrackIndex === index && currentPlayer.src && !currentPlayer.ended && currentPlayer.paused) {
+    currentPlayer.play().then(() => {
+      btnPlayPause.innerHTML = '<i data-lucide="pause"></i>'
+      btnPlayPause.classList.add('is-playing')
+      if ((window as any).lucide) (window as any).lucide.createIcons()
+    }).catch(err => console.error('Resume playback error:', err))
+    return
+  }
+
   currentTrackIndex = index
   const track = currentPlaylist[index]
   const safePath = track.filePath.split(/[\\/]/).map(encodeURIComponent).join('/')
@@ -2381,6 +3457,17 @@ function playTrack(index: number): void {
 
   if (!isRadioMode && (window as any).api.recordPlay && track.uuid) {
     (window as any).api.recordPlay(track.uuid)
+  }
+
+  // Determine target position if specified or from saved position
+  let targetPos = 0
+  if (typeof resumePosition === 'number' && !isNaN(resumePosition)) {
+    targetPos = resumePosition
+  } else if (track.uuid) {
+    const savedPos = getSavedTrackPosition(track.uuid)
+    if (savedPos > 0 && (!track.duration || savedPos < track.duration - 3)) {
+      targetPos = savedPos
+    }
   }
 
   // Cleanup: if we were previously playing a YouTube video (iframe) and now switching formats, reset DOM
@@ -2429,18 +3516,27 @@ function playTrack(index: number): void {
       audio.play()
       if ((window as any).lucide) (window as any).lucide.createIcons()
     }
-  } else if (track.format === 'mp4') {
+  } else if (isVideoTrack(track)) {
     audio.pause()
     videoOverlay.classList.remove('hidden')
     videoPlayer.src = fileUrl
+    if (targetPos > 0) {
+      const applyPos = () => {
+        try { videoPlayer.currentTime = targetPos } catch (e) {}
+      }
+      if (videoPlayer.readyState >= 1) {
+        applyPos()
+      } else {
+        videoPlayer.addEventListener('loadedmetadata', applyPos, { once: true })
+        videoPlayer.addEventListener('canplay', applyPos, { once: true })
+      }
+    }
     videoPlayer.play()
   } else {
     videoOverlay.classList.add('hidden')
     videoPlayer.pause()
     
     // IMPORTANT: Clear previous state and remove crossOrigin for anonymous/public files
-    // CrossOrigin "anonymous" requires the server to return Access-Control-Allow-Origin headers.
-    // Many file servers don't. Standard playback works find without it (opaque mode).
     audio.removeAttribute('crossorigin')
     
     if (fileUrl.startsWith('http')) {
@@ -2459,6 +3555,22 @@ function playTrack(index: number): void {
       updateVolume(audio.volume * 100)
     }
 
+    if (targetPos > 0) {
+      const applyPos = () => {
+        try {
+          audio.currentTime = targetPos
+        } catch (e) {
+          console.warn('Failed setting audio.currentTime in playTrack:', e)
+        }
+      }
+      if (audio.readyState >= 1) {
+        applyPos()
+      } else {
+        audio.addEventListener('loadedmetadata', applyPos, { once: true })
+        audio.addEventListener('canplay', applyPos, { once: true })
+      }
+    }
+
     audio.load() 
 
     audio.play().then(() => {
@@ -2475,7 +3587,7 @@ function playTrack(index: number): void {
   playerTitle.textContent = displayName
   playerArtist.textContent = track.artist ?? 'Unknown Artist'
   playerAlbum.textContent = track.album ?? 'Unknown Album'
-  playerFormat.textContent = track.format?.toUpperCase() || 'AUDIO'
+  playerFormat.textContent = track.kind || track.format?.toUpperCase() || 'AUDIO'
 
   // Update visual highlight in radio detail if currently viewed
   if (isRadioMode && currentRadioBeingViewed) {
@@ -2572,18 +3684,31 @@ function togglePlay(): void {
 
   if (currentPlayer.paused) {
     if (currentPlayer.src) {
-      currentPlayer.play()
-      btnPlayPause.innerHTML = '<i data-lucide="pause"></i>'
-      btnPlayPause.classList.add('is-playing')
+      // Check if session position needs to be re-applied before playing
+      const saved = localStorage.getItem('blackbird-session')
+      if (saved && currentPlayer.currentTime === 0) {
+        try {
+          const session = JSON.parse(saved)
+          if (session.position && session.trackUuid === currentPlaylist[currentTrackIndex]?.uuid) {
+            currentPlayer.currentTime = session.position
+          }
+        } catch (e) {}
+      }
+      currentPlayer.play().then(() => {
+        btnPlayPause.innerHTML = '<i data-lucide="pause"></i>'
+        btnPlayPause.classList.add('is-playing')
+        if ((window as any).lucide) (window as any).lucide.createIcons()
+      }).catch(err => console.error('Play error:', err))
     } else if (currentPlaylist.length > 0) {
       playTrack(0)
     }
   } else {
     currentPlayer.pause()
+    saveSession()
     btnPlayPause.innerHTML = '<i data-lucide="play"></i>'
     btnPlayPause.classList.remove('is-playing')
+    if ((window as any).lucide) (window as any).lucide.createIcons()
   }
-  if ((window as any).lucide) (window as any).lucide.createIcons()
 }
 
 function playNext(e?: Event): void {
@@ -2613,6 +3738,9 @@ function playPrev(e?: Event): void {
 }
 
 function handleTrackEnded(): void {
+  if (currentPlaylist[currentTrackIndex]?.uuid) {
+    clearTrackPosition(currentPlaylist[currentTrackIndex].uuid)
+  }
   if (repeatMode === 'one') {
     audio.currentTime = 0
     audio.play()
@@ -2659,17 +3787,58 @@ function updatePlaybackProgress(): void {
   }
 }
 
+function getSavedTrackPosition(uuid: string): number {
+  if (!uuid) return 0
+  try {
+    const raw = localStorage.getItem('blackbird-track-positions')
+    if (raw) {
+      const positions = JSON.parse(raw)
+      return typeof positions[uuid] === 'number' ? positions[uuid] : 0
+    }
+  } catch (e) {}
+  return 0
+}
+
+function saveTrackPosition(uuid: string, position: number): void {
+  if (!uuid) return
+  try {
+    const raw = localStorage.getItem('blackbird-track-positions')
+    const positions = raw ? JSON.parse(raw) : {}
+    positions[uuid] = Math.max(0, position)
+    localStorage.setItem('blackbird-track-positions', JSON.stringify(positions))
+  } catch (e) {}
+}
+
+function clearTrackPosition(uuid: string): void {
+  if (!uuid) return
+  try {
+    const raw = localStorage.getItem('blackbird-track-positions')
+    if (raw) {
+      const positions = JSON.parse(raw)
+      delete positions[uuid]
+      localStorage.setItem('blackbird-track-positions', JSON.stringify(positions))
+    }
+  } catch (e) {}
+}
+
 function saveSession(): void {
   if (currentTrackIndex < 0 || !currentPlaylist[currentTrackIndex]) return
   
+  const currentTrack = currentPlaylist[currentTrackIndex]
+  const isVideo = !videoOverlay.classList.contains('hidden')
+  const pos = isVideo ? videoPlayer.currentTime : audio.currentTime
+  
   const session = {
-    trackUuid: currentPlaylist[currentTrackIndex].uuid,
+    trackUuid: currentTrack.uuid,
     playlistUuids: currentPlaylist.map(t => t.uuid),
-    position: !videoOverlay.classList.contains('hidden') ? videoPlayer.currentTime : audio.currentTime,
+    position: typeof pos === 'number' && !isNaN(pos) ? pos : 0,
     volume: volumeSlider.value,
     timestamp: Date.now()
   }
   localStorage.setItem('blackbird-session', JSON.stringify(session))
+  if (currentTrack.uuid && typeof pos === 'number' && !isNaN(pos)) {
+    saveTrackPosition(currentTrack.uuid, pos)
+  }
 }
 
 async function loadSession(): Promise<void> {
@@ -2678,26 +3847,38 @@ async function loadSession(): Promise<void> {
 
   try {
     const session = JSON.parse(saved)
-    if (session.volume) {
+    if (session.volume !== undefined) {
       updateVolume(parseInt(session.volume))
     }
 
-    // Give the library a moment to load if needed, though loadLibrary is called before init finishes
     if (library.length === 0) {
       library = await (window as any).api.getLibrary()
     }
 
+    if (session.playlistUuids && Array.isArray(session.playlistUuids) && session.playlistUuids.length > 0) {
+      const restoredPlaylist = session.playlistUuids
+        .map(uuid => library.find(t => t.uuid === uuid))
+        .filter((t): t is (typeof library)[0] => !!t)
+      if (restoredPlaylist.length > 0) {
+        currentPlaylist = restoredPlaylist
+      }
+    }
+
     if (session.trackUuid) {
-      const trackIdx = library.findIndex(t => t.uuid === session.trackUuid)
-      if (trackIdx >= 0) {
-        console.log('Restoring session:', session)
-        currentPlaylist = library 
-        currentTrackIndex = trackIdx
-        const track = library[trackIdx]
-        
+      const trackIdx = currentPlaylist.findIndex(t => t.uuid === session.trackUuid)
+      const targetIdx = trackIdx >= 0 ? trackIdx : library.findIndex(t => t.uuid === session.trackUuid)
+      
+      if (targetIdx >= 0) {
+        if (trackIdx < 0) {
+          currentPlaylist = library
+          currentTrackIndex = targetIdx
+        } else {
+          currentTrackIndex = trackIdx
+        }
+
+        const track = currentPlaylist[currentTrackIndex]
         const safePath = track.filePath.split(/[\\/]/).map(encodeURIComponent).join('/')
         const fileUrl = track.filePath.startsWith('http') ? track.filePath : `local://${safePath}`
-        audio.src = fileUrl
         
         updateSidebarUI(track)
         
@@ -2705,15 +3886,61 @@ async function loadSession(): Promise<void> {
         playerTitle.textContent = displayName
         playerArtist.textContent = track.artist ?? 'Unknown Artist'
         playerAlbum.textContent = track.album ?? 'Unknown Album'
-        playerFormat.textContent = track.format?.toUpperCase() || 'AUDIO'
+        playerFormat.textContent = track.kind || track.format?.toUpperCase() || 'AUDIO'
+
+        const targetPos = typeof session.position === 'number' && !isNaN(session.position) ? session.position : 0
         
-        // CRITICAL: Must wait for metadata to set currentTime
-        audio.addEventListener('loadedmetadata', () => {
-          if (session.position) {
-            audio.currentTime = session.position
+        if (isVideoTrack(track)) {
+          videoPlayer.src = fileUrl
+          const applyVideoPos = () => {
+            if (targetPos > 0) {
+              try { videoPlayer.currentTime = targetPos } catch (e) {}
+            }
+            currentTimeLabel.textContent = formatTime(targetPos)
+            const dur = videoPlayer.duration && !isNaN(videoPlayer.duration) ? videoPlayer.duration : (track.duration || 0)
+            if (dur > 0) {
+              totalTimeLabel.textContent = formatTime(dur)
+              seekSlider.max = dur.toString()
+              seekSlider.value = targetPos.toString()
+              seekFill.style.width = `${(targetPos / dur) * 100}%`
+            }
           }
-          updatePlaybackProgress()
-        }, { once: true })
+          if (videoPlayer.readyState >= 1) {
+            applyVideoPos()
+          } else {
+            videoPlayer.addEventListener('loadedmetadata', applyVideoPos, { once: true })
+            videoPlayer.addEventListener('canplay', applyVideoPos, { once: true })
+          }
+        } else if (track.format !== 'youtube') {
+          audio.removeAttribute('crossorigin')
+          audio.src = fileUrl
+          audio.load()
+
+          const applyAudioPos = () => {
+            if (targetPos > 0) {
+              try {
+                audio.currentTime = targetPos
+              } catch (e) {
+                console.warn('Failed setting audio.currentTime in loadSession:', e)
+              }
+            }
+            currentTimeLabel.textContent = formatTime(targetPos)
+            const dur = audio.duration && !isNaN(audio.duration) ? audio.duration : (track.duration || 0)
+            if (dur > 0) {
+              totalTimeLabel.textContent = formatTime(dur)
+              seekSlider.max = dur.toString()
+              seekSlider.value = targetPos.toString()
+              seekFill.style.width = `${(targetPos / dur) * 100}%`
+            }
+          }
+
+          if (audio.readyState >= 1) {
+            applyAudioPos()
+          } else {
+            audio.addEventListener('loadedmetadata', applyAudioPos, { once: true })
+            audio.addEventListener('canplay', applyAudioPos, { once: true })
+          }
+        }
       }
     }
     setInterval(async () => {
@@ -2777,6 +4004,15 @@ function formatTime(seconds: number): string {
     return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
   return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+function formatBytes(bytes: number, decimals = 1): string {
+  if (!bytes || bytes === 0) return '0 B'
+  const k = 1024
+  const dm = decimals < 0 ? 0 : decimals
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
 }
 
 document.addEventListener('DOMContentLoaded', init)
@@ -3156,5 +4392,119 @@ async function renderServerScreen(): Promise<void> {
       }
     })
   }
+}
+
+function renderAboutScreen(): void {
+  lastListViewTitle = 'About'
+  contentView.innerHTML = `
+    <div class="about-view" style="max-height: calc(100vh - 200px); overflow-y: auto; padding-right: 8px;">
+      
+      <!-- Hero Card -->
+      <div style="background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%); border: 1px solid var(--border); border-radius: 20px; padding: 36px 32px; margin-bottom: 24px; display: flex; flex-direction: column; align-items: center; text-align: center; position: relative; overflow: hidden; backdrop-filter: blur(16px); box-shadow: var(--shadow-md);">
+        <div style="width: 80px; height: 80px; border-radius: 20px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);">
+          <svg width="52" height="52" viewBox="0 0 120 120" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+            <g transform="matrix(0.383603,0,0,0.383603,-112.504925,-39.000037)">
+              <path d="M561.153,325.635C514.693,365.028 414.614,401.266 381.486,316.378C350.564,237.144 406.685,151.365 495.055,120.662C447.727,216.985 468.463,327.971 561.153,325.635Z" style="fill:url(#_Linear1_about);"/>
+            </g>
+            <g transform="matrix(0.383603,0,0,0.383603,-112.504925,-39.000037)">
+              <path d="M414.807,265.767C414.068,333.027 500.173,383.639 547.852,355.966C585.545,310.607 578.153,256.158 601.066,225.115C589.486,222.898 574.951,228.072 568.544,235.463C530.849,233.246 529.371,262.81 504.98,284.245C474.318,311.19 435.849,298.723 414.807,265.767Z" style="fill:url(#_Linear2_about);"/>
+            </g>
+            <g transform="matrix(0.383603,0,0,0.383603,-112.504925,-39.000037)">
+              <path d="M547.852,355.966C492.067,422.431 375.661,423.54 323.274,344.465C270.303,264.508 317.037,163.38 405.654,111.642C379.874,249.119 447.546,377.725 547.852,355.966Z" style="fill:url(#_Linear3_about);"/>
+            </g>
+            <defs>
+              <linearGradient id="_Linear1_about" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse" gradientTransform="matrix(-17.724898,256.420984,-256.420984,-17.724898,483.971,51.2275)"><stop offset="0" style="stop-color:white;stop-opacity:1"/><stop offset="1" style="stop-color:black;stop-opacity:1"/></linearGradient>
+              <linearGradient id="_Linear2_about" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse" gradientTransform="matrix(141.62,-192.059,192.059,141.62,455.677,345.837)"><stop offset="0" style="stop-color:black;stop-opacity:1"/><stop offset="1" style="stop-color:white;stop-opacity:1"/></linearGradient>
+              <linearGradient id="_Linear3_about" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse" gradientTransform="matrix(229.675,331.911,-331.911,229.675,290.585,121.313)"><stop offset="0" style="stop-color:black;stop-opacity:1"/><stop offset="1" style="stop-color:rgb(255,253,253);stop-opacity:1"/></linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <h1 style="font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 4px; color: var(--text-main);">BlackBird Player</h1>
+        <div style="font-size: 13px; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px;">Version 1.1.0 • Modern High-Fidelity Desktop Media Player</div>
+        
+        <div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); padding: 6px 18px; border-radius: 30px; margin-bottom: 16px;">
+          <i data-lucide="sparkles" style="width: 15px; height: 15px; color: var(--accent);"></i>
+          <span style="font-size: 13px; font-weight: 600; color: var(--text-main);">Designed by <strong style="color: var(--accent);">Andre Jaccon</strong></span>
+        </div>
+
+        <p style="font-size: 14px; color: var(--text-muted); max-width: 640px; line-height: 1.6; margin: 0 auto;">
+          BlackBird is a modern, elegant, and high-performance desktop media player engineered for audiophile-grade playback, fast local library indexing, video streaming, online radio broadcasting, and full control over your media collection.
+        </p>
+      </div>
+
+      <!-- Tech Stack Grid -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px;">
+        
+        <div style="background: var(--glass); border: 1px solid var(--border); border-radius: 16px; padding: 20px; backdrop-filter: blur(10px);">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+            <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(59, 130, 246, 0.15); color: #3b82f6; display: flex; align-items: center; justify-content: center;">
+              <i data-lucide="cpu" style="width: 20px; height: 20px;"></i>
+            </div>
+            <div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--text-main);">Core Runtime</div>
+              <div style="font-size: 11px; color: var(--text-muted);">Electron • Node.js • TypeScript • Vite</div>
+            </div>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+            Engineered with isolated IPC communication architecture, lightweight Vite bundling, and native cross-platform compilation for macOS, Windows, and Linux.
+          </p>
+        </div>
+
+        <div style="background: var(--glass); border: 1px solid var(--border); border-radius: 16px; padding: 20px; backdrop-filter: blur(10px);">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+            <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); color: #10b981; display: flex; align-items: center; justify-content: center;">
+              <i data-lucide="database" style="width: 20px; height: 20px;"></i>
+            </div>
+            <div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--text-main);">Storage & Metadata</div>
+              <div style="font-size: 11px; color: var(--text-muted);">SQLite 3 • better-sqlite3 • WAL • music-metadata</div>
+            </div>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+            Ultra-fast embedded SQLite database with Write-Ahead Logging (WAL), automated schema migrations, ID3/EXIF tag parsing, and instantaneous local library search.
+          </p>
+        </div>
+
+        <div style="background: var(--glass); border: 1px solid var(--border); border-radius: 16px; padding: 20px; backdrop-filter: blur(10px);">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+            <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(245, 158, 11, 0.15); color: #f59e0b; display: flex; align-items: center; justify-content: center;">
+              <i data-lucide="music" style="width: 20px; height: 20px;"></i>
+            </div>
+            <div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--text-main);">Audio Engine & Visuals</div>
+              <div style="font-size: 11px; color: var(--text-muted);">HTML5 Audio/Video • Web Audio API • Canvas</div>
+            </div>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+            Real-time audio processing with a 10-band graphic equalizer, dynamic Canvas wave visualizers, online radio streaming (Shoutcast/Icecast), and Google Cast integration.
+          </p>
+        </div>
+
+        <div style="background: var(--glass); border: 1px solid var(--border); border-radius: 16px; padding: 20px; backdrop-filter: blur(10px);">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+            <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(139, 92, 246, 0.15); color: #8b5cf6; display: flex; align-items: center; justify-content: center;">
+              <i data-lucide="shield-check" style="width: 20px; height: 20px;"></i>
+            </div>
+            <div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--text-main);">Privacy & Vault</div>
+              <div style="font-size: 11px; color: var(--text-muted);">Hidden Files Vault • Zero Telemetry</div>
+            </div>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+            Password-protected vault for hidden media files and custom folders, 100% offline-first architecture with zero external telemetry or tracking.
+          </p>
+        </div>
+
+      </div>
+
+      <!-- Footer Info -->
+      <div style="text-align: center; padding: 16px; color: var(--text-muted); font-size: 12px;">
+        © ${new Date().getFullYear()} BlackBird Player. Designed by <strong>Andre Jaccon</strong>.
+      </div>
+
+    </div>
+  `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
 }
 

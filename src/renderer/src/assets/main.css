@@ -1229,3 +1229,162 @@ body {
     transform: scale(1.05);
     color: var(--accent);
 }
+
+/* Hidden Files & Folders Vault */
+.hidden-vault-view {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 170px);
+    overflow-y: auto;
+    padding-right: 8px;
+}
+
+.vault-lock-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 480px;
+    padding: 32px;
+}
+
+.vault-lock-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 40px 48px;
+    width: 100%;
+    max-width: 440px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(16px);
+}
+
+.vault-lock-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--glass);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    margin-bottom: 20px;
+}
+
+.hidden-folder-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.hidden-folder-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    user-select: none;
+}
+
+.hidden-folder-card:hover {
+    background: var(--bg-card-hover);
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-2px);
+}
+
+.hidden-folder-card.drag-target-hover {
+    border-color: var(--accent) !important;
+    background: rgba(230, 0, 0, 0.12) !important;
+    box-shadow: 0 0 16px rgba(230, 0, 0, 0.25);
+    transform: scale(1.03);
+}
+
+.hidden-folder-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: var(--glass);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.hidden-folder-info {
+    flex: 1;
+    overflow: hidden;
+}
+
+.hidden-folder-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hidden-folder-count {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.hidden-folder-actions {
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    display: flex;
+    gap: 4px;
+}
+
+.hidden-folder-card:hover .hidden-folder-actions {
+    opacity: 1;
+}
+
+.hidden-dropzone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-bottom: 20px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: rgba(255, 255, 255, 0.01);
+}
+
+.hidden-dropzone.drag-target-hover {
+    border-color: var(--accent);
+    background: rgba(230, 0, 0, 0.08);
+    color: var(--accent);
+}
+
+.hidden-track-item {
+    cursor: grab;
+    transition: background 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+
+.hidden-track-item:active {
+    cursor: grabbing;
+}
+
+.hidden-track-item.is-dragging {
+    opacity: 0.35;
+    transform: scale(0.98);
+}

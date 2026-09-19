@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, net, Menu, MenuItemConstructorOptions, protocol } from 'electron'
 import { join, basename } from 'path'
+import { pathToFileURL } from 'url'
 import * as fs from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
@@ -106,7 +107,8 @@ app.whenReady().then(() => {
       const withoutParams = decodedUrl.split('?')[0].split('#')[0]
       // Add the leading slash back for macOS/Linux if it was stripped, Windows handles C:/ fine
       const finalPath = withoutParams.startsWith('/') || withoutParams.match(/^[a-zA-Z]:\\/) ? withoutParams : '/' + withoutParams
-      return net.fetch('file://' + finalPath)
+      const fileUrl = pathToFileURL(finalPath).toString()
+      return net.fetch(fileUrl)
     } catch (error) {
       console.error('Failed to parse local URL', error)
       return new Response('Not Found', { status: 404 })
@@ -310,68 +312,63 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('scan-folder', async (_, { folderPath, copyOnImport }: { folderPath: string, copyOnImport: boolean }) => {
+  ipcMain.handle('scan-folder', async (_, args: any) => {
     try {
-      console.log(`Starting scan of folder: ${folderPath}, copyOnImport: ${copyOnImport}`)
+      const folderPath = typeof args === 'string' ? args : args?.folderPath
+      if (!folderPath) return { success: false, error: 'No folder path provided' }
+
       const files = await scanDirectory(folderPath)
-      console.log(`Found ${files.length} files to process`)
-      
-      const musicDir = join(app.getPath('home'), 'BlackBird', 'music')
-      if (copyOnImport && !fs.existsSync(musicDir)) {
-        fs.mkdirSync(musicDir, { recursive: true })
-      }
+      console.log(`Found ${files.length} files to process in ${folderPath}`)
       
       const chunkSize = 50
       for (let i = 0; i < files.length; i += chunkSize) {
         const chunk = files.slice(i, i + chunkSize)
-        console.log(`Processing chunk ${i / chunkSize + 1} of ${Math.ceil(files.length / chunkSize)}`)
+        const tracksToUpsert: any[] = []
         
         await Promise.all(chunk.map(async (file) => {
           try {
-            let actualFile = file;
-            if (copyOnImport) {
-              const fileName = basename(file);
-              const newPath = join(musicDir, fileName);
-              if (file !== newPath) {
-                fs.copyFileSync(file, newPath);
-                actualFile = newPath;
-              }
-            }
-
-            let dbTrack = dbOps.getTrackByPath(actualFile)
+            let dbTrack = dbOps.getTrackByPath(file)
             
             if (!dbTrack) {
-              const metadata = await getMetadata(actualFile, false)
+              const metadata = await getMetadata(file, false)
               const uuid = uuidv4()
               dbTrack = {
                 uuid,
                 title: metadata.title || '',
                 artist: metadata.artist || '',
                 album: metadata.album || '',
-                file_path: actualFile,
+                file_path: file,
                 format: metadata.format || 'unknown',
+                mimetype: metadata.mimetype || 'audio/mpeg',
+                kind: metadata.kind || metadata.format?.toUpperCase() || 'AUDIO',
                 cover: metadata.cover || null,
                 duration: metadata.duration || 0,
                 is_favorite: 0,
+                is_hidden: 0,
+                hidden_folder_id: null,
                 description: metadata.description || '',
                 lyrics: metadata.lyrics || ''
               }
-              dbOps.upsertTrack(dbTrack)
+              tracksToUpsert.push(dbTrack)
             } else if (!dbTrack.cover || dbTrack.cover === 'null') {
-              const metadata = await getMetadata(actualFile, false)
+              const metadata = await getMetadata(file, false)
               if (metadata.cover) {
                 dbTrack.cover = metadata.cover
-                dbOps.upsertTrack(dbTrack)
+                tracksToUpsert.push(dbTrack)
               }
             }
           } catch (e) {
             console.error(`Failed to process ${file}`, e)
           }
         }))
+
+        if (tracksToUpsert.length > 0) {
+          dbOps.upsertTracksBatch(tracksToUpsert)
+        }
       }
       
       console.log('Scan completed successfully')
-      return { success: true }
+      return { success: true, count: files.length }
     } catch (error: any) {
       console.error('Scan failed:', error)
       return { success: false, error: error.message }
@@ -384,39 +381,107 @@ app.whenReady().then(() => {
   ipcMain.handle('add-to-playlist', (_, { playlistId, trackUuid }) => dbOps.addTrackToPlaylist(playlistId, trackUuid))
   ipcMain.handle('remove-from-playlist', (_, { playlistId, trackUuid }) => dbOps.removeTrackFromPlaylist(playlistId, trackUuid))
   ipcMain.handle('get-playlist-tracks', (_, playlistId: string) => dbOps.getPlaylistTracks(playlistId))
-  ipcMain.handle('update-track', (_, { uuid, data }) => dbOps.updateTrack(uuid, data))
   ipcMain.handle('delete-playlist', (_, id: string) => dbOps.deletePlaylist(id))
+
+  // App & System IPCs
   ipcMain.handle('get-library', () => dbOps.getAllTracks())
-  ipcMain.handle('get-track-cover', async (_, { uuid, filePath }) => {
-    try {
-      if (filePath.startsWith('http')) return null
-      const metadata = await getMetadata(filePath, false) // false = fetch cover
-      if (metadata.cover) {
-        dbOps.updateTrack(uuid, { cover: metadata.cover })
-        return metadata.cover
-      }
-    } catch (e) {
-      console.error('Failed to get cover on demand', e)
-    }
-    return null
-  })
-  ipcMain.handle('get-themes', () => dbOps.getThemes())
-  ipcMain.handle('delete-tracks', (_, uuids: string[]) => dbOps.deleteTracks(uuids))
   ipcMain.handle('get-favorites', () => dbOps.getFavoriteTracks())
+  ipcMain.handle('get-statistics', () => dbOps.getStatistics())
   ipcMain.handle('get-play-history', () => dbOps.getPlayHistory())
+  ipcMain.handle('record-play', (_, trackUuid: string) => dbOps.recordPlay(trackUuid))
+  ipcMain.handle('toggle-favorite', (_, trackUuid: string) => dbOps.toggleFavorite(trackUuid))
+  ipcMain.handle('update-track', (_, args: any) => {
+    const targetUuid = args?.uuid || args?.trackUuid
+    const updateData = args?.data !== undefined ? args.data : args
+    return dbOps.updateTrack(targetUuid, updateData)
+  })
+  ipcMain.handle('delete-tracks', (_, trackUuids: string[]) => dbOps.deleteTracks(trackUuids))
+  ipcMain.handle('get-hidden-tracks', (_, folderId?: string | null) => dbOps.getHiddenTracks(folderId))
+  ipcMain.handle('get-hidden-folders', () => dbOps.getHiddenFolders())
+  ipcMain.handle('create-hidden-folder', (_, name: string) => dbOps.createHiddenFolder(name))
+  ipcMain.handle('rename-hidden-folder', (_, args: any) => {
+    const folderId = args?.id || args?.folderId
+    const name = args?.name
+    return dbOps.renameHiddenFolder(folderId, name)
+  })
+  ipcMain.handle('delete-hidden-folder', (_, folderId: string) => dbOps.deleteHiddenFolder(folderId))
+  ipcMain.handle('move-hidden-track', (_, args: any) => {
+    const trackUuid = args?.trackUuid || args?.uuid
+    const folderId = args?.folderId
+    return dbOps.moveHiddenTrackToFolder(trackUuid, folderId)
+  })
+  ipcMain.handle('hide-tracks', (_, args: any) => {
+    if (Array.isArray(args)) {
+      return dbOps.hideTracks(args, null)
+    }
+    return dbOps.hideTracks(args?.uuids || [], args?.folderId || null)
+  })
+  ipcMain.handle('unhide-tracks', (_, uuids: string[]) => dbOps.unhideTracks(uuids))
+  ipcMain.handle('get-themes', () => dbOps.getThemes())
+  ipcMain.handle('save-user-radio', (_, radio: any) => dbOps.saveUserRadio(radio))
+  ipcMain.handle('get-user-radios', () => dbOps.getUserRadios())
+  ipcMain.handle('delete-user-radio', (_, id: string) => dbOps.deleteUserRadio(id))
+  ipcMain.handle('open-path', async (_, folderPath: string) => {
+    return await shell.openPath(folderPath)
+  })
   ipcMain.handle('process-metadata', async (_, filePath: string) => {
     if (filePath.startsWith('http')) return {}
     return await getMetadata(filePath, false)
   })
   ipcMain.handle('upsert-track', (_, track: any) => dbOps.upsertTrack(track))
-  ipcMain.handle('record-play', (_, trackUuid: string) => dbOps.recordPlay(trackUuid))
-  ipcMain.handle('get-statistics', () => dbOps.getStatistics())
-  ipcMain.handle('save-user-radio', (_, radio: any) => dbOps.saveUserRadio(radio))
-  ipcMain.handle('get-user-radios', () => dbOps.getUserRadios())
-  ipcMain.handle('delete-user-radio', (_, id: string) => dbOps.deleteUserRadio(id))
-  
-  ipcMain.handle('open-path', async (_, folderPath: string) => {
-    return await shell.openPath(folderPath)
+  ipcMain.handle('get-setting', (_, key: string) => dbOps.getSetting(key))
+  ipcMain.handle('set-setting', (_, { key, value }: { key: string, value: string }) => dbOps.setSetting(key, value))
+
+  ipcMain.handle('import-hidden-files', async (_, folderId?: string | null) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Media & Photos', extensions: ['mp3', 'wav', 'ogg', 'mp4', 'webm', 'jpg', 'jpeg', 'png', 'gif'] }
+      ]
+    })
+    if (canceled || !filePaths || filePaths.length === 0) return { success: false, count: 0 }
+    
+    const tracksToUpsert: any[] = []
+    let count = 0
+    for (const file of filePaths) {
+      try {
+        let dbTrack = dbOps.getTrackByPath(file)
+        if (!dbTrack) {
+          const metadata = await getMetadata(file, false)
+          const uuid = uuidv4()
+          dbTrack = {
+            uuid,
+            title: metadata.title || '',
+            artist: metadata.artist || '',
+            album: metadata.album || '',
+            file_path: file,
+            format: metadata.format || 'unknown',
+            mimetype: metadata.mimetype || 'audio/mpeg',
+            kind: metadata.kind || metadata.format?.toUpperCase() || 'AUDIO',
+            cover: metadata.cover || null,
+            duration: metadata.duration || 0,
+            is_favorite: 0,
+            is_hidden: 1,
+            hidden_folder_id: folderId || null,
+            description: metadata.description || '',
+            lyrics: metadata.lyrics || ''
+          }
+          tracksToUpsert.push(dbTrack)
+          count++
+        } else {
+          dbOps.updateTrack(dbTrack.uuid, { is_hidden: 1, hidden_folder_id: folderId || null })
+          count++
+        }
+      } catch (e) {
+        console.error('Failed to import hidden file', file, e)
+      }
+    }
+
+    if (tracksToUpsert.length > 0) {
+      dbOps.upsertTracksBatch(tracksToUpsert)
+    }
+
+    return { success: true, count }
   })
   ipcMain.handle('get-app-paths', async () => {
     const baseConfigDir = join(app.getPath('home'), 'BlackBird');
@@ -432,6 +497,7 @@ app.whenReady().then(() => {
   ipcMain.handle('get-server-status', () => getServerStatus())
   ipcMain.handle('start-server', (_, port?: number) => startServer(port))
   ipcMain.handle('stop-server', () => stopServer())
+  ipcMain.handle('reset-app-data', (_, options?: { clearCovers?: boolean }) => dbOps.resetAllData(options))
   
   ipcMain.handle('export-settings', async () => {
     const data = dbOps.getAllRaw()

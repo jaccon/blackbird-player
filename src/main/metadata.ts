@@ -14,14 +14,61 @@ export interface TrackMetadata {
   filePath: string;
   fileName: string;
   format: string;
+  mimetype: string;
+  kind?: string;
   description?: string;
   lyrics?: string;
 }
 
+export function getMimeType(filePath: string, format?: string): string {
+  const ext = (format || path.extname(filePath).replace('.', '')).toLowerCase();
+  switch (ext) {
+    case 'mp3': return 'audio/mpeg';
+    case 'm4a':
+    case 'aac': return 'audio/mp4';
+    case 'flac': return 'audio/flac';
+    case 'wav': return 'audio/wav';
+    case 'ogg':
+    case 'oga': return 'audio/ogg';
+    case 'opus': return 'audio/opus';
+    case 'wma': return 'audio/x-ms-wma';
+    case 'mp4':
+    case 'm4v': return 'video/mp4';
+    case 'webm': return 'video/webm';
+    case 'mkv': return 'video/x-matroska';
+    case 'mov': return 'video/quicktime';
+    case 'avi': return 'video/x-msvideo';
+    case 'youtube': return 'video/youtube';
+    case 'stream': return 'audio/stream';
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'png': return 'image/png';
+    case 'gif': return 'image/gif';
+    case 'webp': return 'image/webp';
+    case 'bmp': return 'image/bmp';
+    default: return 'application/octet-stream';
+  }
+}
+
 export async function getMetadata(filePath: string, skipCovers = false): Promise<TrackMetadata> {
   const fileName = path.basename(filePath);
-  const format = path.extname(filePath).toLowerCase().replace('.', '');
+  const format = path.extname(filePath).toLowerCase().replace('.', '') || 'unknown';
+  const mimetype = getMimeType(filePath, format);
   
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(format)) {
+    return {
+      title: fileName,
+      artist: 'Photo',
+      album: 'Photos',
+      cover: filePath,
+      filePath,
+      fileName,
+      format,
+      mimetype,
+      kind: 'Photo'
+    };
+  }
+
   try {
     const metadata = await mm.parseFile(filePath, { skipCovers });
     let cover: string | undefined = undefined;
@@ -33,35 +80,47 @@ export async function getMetadata(filePath: string, skipCovers = false): Promise
       cover = `data:${picture.format};base64,${base64}`;
     }
 
+    const defaultKind = (metadata.common.genre && metadata.common.genre.length > 0 && metadata.common.genre[0])
+      ? metadata.common.genre[0]
+      : format.toUpperCase();
+
     return {
-      title: metadata.common.title || fileName,
+      title: metadata.common.title || fileName.replace(/\.[^/.]+$/, ''),
       artist: metadata.common.artist || 'Unknown Artist',
       album: metadata.common.album || 'Unknown Album',
       year: metadata.common.year,
-      duration: metadata.format.duration,
-      trackNumber: metadata.common.track.no || undefined,
+      duration: metadata.format.duration || 0,
+      trackNumber: metadata.common.track?.no || undefined,
       genre: metadata.common.genre,
       cover,
       filePath,
       fileName,
-      format
+      format,
+      mimetype,
+      kind: defaultKind
     };
   } catch (error) {
-    console.error(`Error parsing metadata for ${filePath}:`, error);
     return {
-      title: fileName,
+      title: fileName.replace(/\.[^/.]+$/, ''),
       artist: 'Unknown Artist',
       album: 'Unknown Album',
+      duration: 0,
       filePath,
       fileName,
-      format
+      format,
+      mimetype,
+      kind: format.toUpperCase()
     };
   }
 }
 
 export async function scanDirectory(dirPath: string): Promise<string[]> {
   const files: string[] = [];
-  const supportedExtensions = ['.mp3', '.wav', '.ogg', '.mp4', '.webm', '.jpg', '.jpeg', '.png', '.gif'];
+  const supportedExtensions = [
+    '.mp3', '.m4a', '.flac', '.aac', '.wav', '.ogg', '.oga', '.opus', '.wma',
+    '.mp4', '.m4v', '.webm', '.mkv', '.mov', '.avi',
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'
+  ];
 
   function walk(currentDir: string) {
     try {
