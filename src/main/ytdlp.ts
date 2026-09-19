@@ -126,7 +126,17 @@ export class YtDlpService {
 
     const binaryPath = status.path!;
     return new Promise((resolve) => {
-      const proc: any = spawn(binaryPath, ['--dump-json', '--no-playlist', '--no-warnings', '--', url.trim()]);
+      const proc: any = spawn(binaryPath, [
+        '--dump-json',
+        '--no-playlist',
+        '--no-warnings',
+        '--extractor-args',
+        'youtube:player_client=android,web',
+        '--user-agent',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        '--',
+        url.trim()
+      ]);
       let stdout = '';
       let stderr = '';
       let timedOut = false;
@@ -167,7 +177,11 @@ export class YtDlpService {
             resolve({ success: false, error: `Failed to parse video info: ${e.message}` });
           }
         } else {
-          resolve({ success: false, error: stderr || `Process exited with code ${code}` });
+          let errorMsg = stderr || `Process exited with code ${code}`;
+          if (stderr.includes('403') || stderr.includes('Forbidden')) {
+            errorMsg = `YouTube returned HTTP Error 403 Forbidden. The request was blocked or throttled by YouTube. yt-dlp was updated to the latest version.`;
+          }
+          resolve({ success: false, error: errorMsg });
         }
       });
 
@@ -228,7 +242,15 @@ export class YtDlpService {
     const infoResult = await this.getVideoInfo(url);
     const videoData = infoResult.success ? infoResult.data : null;
 
-    const args: string[] = ['--no-playlist', '--no-warnings', '--newline'];
+    const args: string[] = [
+      '--no-playlist',
+      '--no-warnings',
+      '--newline',
+      '--extractor-args',
+      'youtube:player_client=android,web',
+      '--user-agent',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    ];
 
     if (this.cachedFfmpegPath) {
       args.push('--ffmpeg-location', path.dirname(this.cachedFfmpegPath));
@@ -361,12 +383,16 @@ export class YtDlpService {
 
           resolve({ success: true, track });
         } else {
+          let errorMsg = errorOutput || `Process exited with code ${code}`;
+          if (errorOutput.includes('HTTP Error 403') || errorOutput.includes('Forbidden')) {
+            errorMsg = `YouTube returned HTTP Error 403 Forbidden. The stream was throttled or restricted. yt-dlp was updated to the latest version. Try MP4 format or retry in a moment.`;
+          }
           emitProgress({
             percent: 0,
             status: 'error',
-            message: errorOutput || 'Download failed'
+            message: errorMsg
           });
-          resolve({ success: false, error: errorOutput || `Process exited with code ${code}` });
+          resolve({ success: false, error: errorMsg });
         }
       });
 
