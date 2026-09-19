@@ -110,7 +110,7 @@ app.whenReady().then(async () => {
       const decodedUrl = decodeURIComponent(request.url.replace(/^local:\/\//, ''))
       const withoutParams = decodedUrl.split('?')[0].split('#')[0]
       // Add the leading slash back for macOS/Linux if it was stripped, Windows handles C:/ fine
-      const finalPath = withoutParams.startsWith('/') || withoutParams.match(/^[a-zA-Z]:\\/) ? withoutParams : '/' + withoutParams
+      const finalPath = withoutParams.startsWith('/') || withoutParams.match(/^[a-zA-Z]:[\\/]/) ? withoutParams : '/' + withoutParams
       const fileUrl = pathToFileURL(finalPath).toString()
       return net.fetch(fileUrl)
     } catch (error) {

@@ -45,8 +45,18 @@ export class YtDlpService {
   private static findBinary(name: string): string | null {
     const isWin = process.platform === 'win32';
     const binaryName = isWin ? `${name}.exe` : name;
+    
+    // Check bundled binaries first
+    let bundledPath = '';
+    if (app.isPackaged) {
+      bundledPath = path.join(process.resourcesPath, 'bin', binaryName);
+    } else {
+      const osDir = isWin ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux';
+      bundledPath = path.join(app.getAppPath(), 'resources', 'bin', osDir, binaryName);
+    }
 
     const candidates = [
+      bundledPath,
       `/usr/local/bin/${name}`,
       `/opt/homebrew/bin/${name}`,
       `/usr/bin/${name}`,

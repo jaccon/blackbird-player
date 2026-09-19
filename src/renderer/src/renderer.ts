@@ -108,6 +108,7 @@ function createPlaceholderMarkup(text: string): string {
 }
 
 let currentTrackIndex = -1
+let currentlyPlayingTrackUuid: string | null = null
 let isShuffle = false
 let repeatMode: 'none' | 'one' | 'all' = 'all'
 let selectedTrackUuids: Set<string> = new Set()
@@ -3513,10 +3514,12 @@ function playTrack(index: number, resumePosition?: number): void {
 
   if (index < 0 || index >= currentPlaylist.length) return
   
+  const track = currentPlaylist[index]
+
   // If user clicked on the current track and it's already loaded and paused, simply resume playback
   const isVideo = !videoOverlay.classList.contains('hidden')
   const currentPlayer = isVideo ? videoPlayer : audio
-  if (currentTrackIndex === index && currentPlayer.src && !currentPlayer.ended && currentPlayer.paused) {
+  if (currentTrackIndex === index && currentlyPlayingTrackUuid === track.uuid && currentPlayer.src && !currentPlayer.ended && currentPlayer.paused) {
     currentPlayer.play().then(() => {
       btnPlayPause.innerHTML = '<i data-lucide="pause"></i>'
       btnPlayPause.classList.add('is-playing')
@@ -3526,7 +3529,7 @@ function playTrack(index: number, resumePosition?: number): void {
   }
 
   currentTrackIndex = index
-  const track = currentPlaylist[index]
+  currentlyPlayingTrackUuid = track.uuid || null
   const safePath = track.filePath.split(/[\\/]/).map(encodeURIComponent).join('/')
   const fileUrl = track.filePath.startsWith('http') ? track.filePath : `local://${safePath}`
 
