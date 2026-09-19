@@ -17,6 +17,8 @@ import { v4 as uuidv4 } from 'uuid'
 import ChromecastAPI from 'chromecast-api'
 import localIpUrl from 'local-ip-url'
 import * as http from 'http'
+import { PluginService } from './plugins'
+import { YtDlpService } from './ytdlp'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'local', privileges: { secure: true, supportFetchAPI: true, bypassCSP: true, stream: true } }
@@ -89,7 +91,9 @@ if (!fs.existsSync(defaultMusicDir)) {
   fs.mkdirSync(defaultMusicDir, { recursive: true });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Initialize plugins system
+  await PluginService.init()
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.jaccon.blackbird')
 
@@ -634,6 +638,29 @@ app.whenReady().then(() => {
       return { success: false, error: e.message }
     }
   })
+
+  // Plugin Management IPC Handlers
+  ipcMain.handle('plugin:list', () => PluginService.syncInstalledPlugins())
+  ipcMain.handle('plugin:install-url', (_, url: string) => PluginService.installFromUrl(url))
+  ipcMain.handle('plugin:install-file', () => PluginService.installFromFile())
+  ipcMain.handle('plugin:toggle', (_, { id, enabled }: { id: string; enabled: boolean }) =>
+    PluginService.togglePlugin(id, enabled)
+  )
+  ipcMain.handle('plugin:delete', (_, id: string) => PluginService.deletePlugin(id))
+  ipcMain.handle('plugin:get-asset', (_, { id, assetType }: { id: string; assetType: 'main' | 'styles' }) =>
+    PluginService.getPluginAsset(id, assetType)
+  )
+
+  // YouTube / yt-dlp IPC Handlers
+  ipcMain.handle('ytdlp:check', () => YtDlpService.checkAvailability())
+  ipcMain.handle('ytdlp:get-info', (_, url: string) => YtDlpService.getVideoInfo(url))
+  ipcMain.handle(
+    'ytdlp:convert',
+    (event, options: { url: string; format: 'mp3' | 'mp4'; customTitle?: string; customArtist?: string }) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      return YtDlpService.convertAndDownload(options, win)
+    }
+  )
 
   createWindow()
 

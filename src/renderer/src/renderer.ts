@@ -20,6 +20,20 @@ export interface TrackMetadata {
   lyrics?: string;
 }
 
+export interface PluginInfo {
+  id: string;
+  name: string;
+  version?: string;
+  description?: string;
+  author?: string;
+  icon?: string;
+  main?: string;
+  styles?: string;
+  enabled: number;
+  folder_path: string;
+  installed_at?: string;
+}
+
 export function getTrackExtension(t: TrackMetadata): string {
   const pathStr = t.filePath || t.fileName || '';
   if (pathStr.includes('.')) {
@@ -202,6 +216,13 @@ let castModal: HTMLElement
 let castDeviceList: HTMLElement
 
 
+// Plugin Elements
+let btnPlugins: HTMLElement | null
+let pluginInstallModal: HTMLElement | null
+let inputPluginUrl: HTMLInputElement | null
+let btnInstallPluginFile: HTMLElement | null
+let btnConfirmInstallPlugin: HTMLElement | null
+
 // Theme Switcher Element
 let themeSelector: HTMLSelectElement
 
@@ -367,6 +388,60 @@ async function init(): Promise<void> {
       selectedTrackUuids.clear()
       setActiveNav('btn-about')
       renderAboutScreen()
+    })
+
+    // Plugins button click - show Plugins screen
+    btnPlugins = document.getElementById('btn-plugins')
+    btnPlugins?.addEventListener('click', () => {
+      selectedTrackUuids.clear()
+      setActiveNav('btn-plugins')
+      renderPluginsScreen()
+    })
+
+    pluginInstallModal = document.getElementById('plugin-install-modal')
+    inputPluginUrl = document.getElementById('plugin-url-input') as HTMLInputElement
+    btnInstallPluginFile = document.getElementById('btn-install-plugin-file')
+    btnConfirmInstallPlugin = document.getElementById('btn-confirm-install-plugin')
+
+    btnInstallPluginFile?.addEventListener('click', async () => {
+      try {
+        const res = await window.api.installPluginFromFile()
+        if (res.success) {
+          closeModal()
+          renderPluginsScreen()
+        } else if (res.error && res.error !== 'Installation cancelled') {
+          alert(`Error installing plugin: ${res.error}`)
+        }
+      } catch (err: any) {
+        alert(`Failed to install plugin: ${err.message}`)
+      }
+    })
+
+    btnConfirmInstallPlugin?.addEventListener('click', async () => {
+      const url = inputPluginUrl?.value.trim()
+      if (!url) {
+        alert('Please enter a valid plugin ZIP URL')
+        return
+      }
+
+      const originalText = btnConfirmInstallPlugin!.innerText
+      btnConfirmInstallPlugin!.innerText = 'Installing...'
+      btnConfirmInstallPlugin!.setAttribute('disabled', 'true')
+
+      try {
+        const res = await window.api.installPluginFromUrl(url)
+        if (res.success) {
+          closeModal()
+          renderPluginsScreen()
+        } else {
+          alert(`Failed to install plugin: ${res.error || 'Unknown error'}`)
+        }
+      } catch (err: any) {
+        alert(`Failed to install plugin: ${err.message}`)
+      } finally {
+        btnConfirmInstallPlugin!.innerText = originalText
+        btnConfirmInstallPlugin!.removeAttribute('disabled')
+      }
     })
     btnRadio = document.getElementById('btn-radio')!
     radioModal = document.getElementById('radio-modal')!
@@ -560,6 +635,8 @@ function closeModal(): void {
   youtubeModal.classList.add('hidden')
   castModal.classList.add('hidden')
   radioModal.classList.add('hidden')
+  pluginInstallModal?.classList.add('hidden')
+  if (inputPluginUrl) inputPluginUrl.value = ''
   
   inputPlaylistName.value = ''
   if (inputQuickPlaylistName) inputQuickPlaylistName.value = ''
@@ -4506,5 +4583,297 @@ function renderAboutScreen(): void {
   `
 
   if ((window as any).lucide) (window as any).lucide.createIcons()
+}
+
+function escapeHtml(str?: string | null): string {
+  if (!str) return ''
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+async function renderPluginsScreen(): Promise<void> {
+  lastListViewTitle = 'Plugins'
+  contentView.innerHTML = `
+    <div class="plugins-view-wrapper">
+      <div class="plugins-header">
+        <div class="plugins-header-info">
+          <h2><i data-lucide="puzzle" style="color: var(--accent);"></i> Plugins & Extensions</h2>
+          <p>Install and manage modular add-ons for BlackBird.</p>
+        </div>
+        <button class="btn-primary" id="btn-open-install-plugin-modal" style="gap: 8px;">
+          <i data-lucide="plus"></i> Install Plugin
+        </button>
+      </div>
+      <div id="plugins-list-container">
+        <div style="display: flex; align-items: center; justify-content: center; padding: 60px; color: var(--text-muted); gap: 12px;">
+          <i data-lucide="loader" class="spinner" style="width: 24px; height: 24px; animation: spin 1s linear infinite;"></i>
+          <span>Loading plugins...</span>
+        </div>
+      </div>
+    </div>
+  `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  const btnOpenInstall = document.getElementById('btn-open-install-plugin-modal')
+  btnOpenInstall?.addEventListener('click', () => {
+    modalContainer.classList.remove('hidden')
+    pluginInstallModal?.classList.remove('hidden')
+    inputPluginUrl?.focus()
+  })
+
+  try {
+    const plugins = await window.api.getPlugins()
+    const container = document.getElementById('plugins-list-container')
+    if (!container) return
+
+    if (!plugins || plugins.length === 0) {
+      container.innerHTML = `
+        <div style="text-align: center; padding: 60px 20px; background: rgba(255,255,255,0.02); border: 1px dashed var(--border); border-radius: 16px;">
+          <i data-lucide="puzzle" style="width: 48px; height: 48px; color: var(--text-muted); margin-bottom: 16px; opacity: 0.5;"></i>
+          <h3 style="color: var(--text-main); margin-bottom: 8px;">No plugins installed yet</h3>
+          <p style="color: var(--text-muted); font-size: 14px; max-width: 400px; margin: 0 auto 20px auto;">
+            Expand BlackBird capabilities by installing custom plugins via Web ZIP or local archive.
+          </p>
+        </div>
+      `
+      if ((window as any).lucide) (window as any).lucide.createIcons()
+      return
+    }
+
+    container.innerHTML = `
+      <div class="plugins-grid">
+        ${plugins.map(p => `
+          <div class="plugin-card ${p.enabled ? '' : 'disabled'}" id="card-plugin-${escapeHtml(p.id)}">
+            <div class="plugin-card-top">
+              <div class="plugin-icon-box">
+                <i data-lucide="${escapeHtml(p.icon || 'puzzle')}"></i>
+              </div>
+              <div class="plugin-title-box">
+                <div class="plugin-title-row">
+                  <h3 class="plugin-name">${escapeHtml(p.name)}</h3>
+                  <span class="plugin-version">v${escapeHtml(p.version || '1.0.0')}</span>
+                </div>
+                <p class="plugin-author">by ${escapeHtml(p.author || 'Community')}</p>
+              </div>
+            </div>
+            <p class="plugin-desc">${escapeHtml(p.description || 'No description provided.')}</p>
+            <div class="plugin-card-bottom">
+              <div class="plugin-status-group">
+                <label class="switch-toggle">
+                  <input type="checkbox" class="plugin-toggle-input" data-plugin-id="${escapeHtml(p.id)}" ${p.enabled ? 'checked' : ''}>
+                  <span class="switch-slider"></span>
+                </label>
+                <span class="plugin-status-label ${p.enabled ? 'active' : ''}" id="status-label-${escapeHtml(p.id)}">
+                  ${p.enabled ? 'Active' : 'Disabled'}
+                </span>
+              </div>
+              <div class="plugin-card-actions">
+                ${p.enabled ? `
+                  <button class="btn-secondary btn-open-plugin" data-plugin-id="${escapeHtml(p.id)}" style="padding: 6px 14px; font-size: 13px; gap: 6px;">
+                    <i data-lucide="external-link"></i> Open
+                  </button>
+                ` : ''}
+                <button class="btn-icon circle-small btn-delete-plugin" data-plugin-id="${escapeHtml(p.id)}" title="Uninstall Plugin" style="color: #ef4444;">
+                  <i data-lucide="trash-2"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `
+
+    if ((window as any).lucide) (window as any).lucide.createIcons()
+
+    // Attach toggle listeners with debounce protection
+    document.querySelectorAll('.plugin-toggle-input').forEach(input => {
+      input.addEventListener('change', async (e) => {
+        const target = e.target as HTMLInputElement
+        const pluginId = target.getAttribute('data-plugin-id')!
+        const isEnabled = target.checked
+        const card = document.getElementById(`card-plugin-${pluginId}`)
+        const label = document.getElementById(`status-label-${pluginId}`)
+
+        target.disabled = true
+        try {
+          await window.api.togglePlugin(pluginId, isEnabled)
+          if (label) {
+            label.textContent = isEnabled ? 'Active' : 'Disabled'
+            label.className = `plugin-status-label ${isEnabled ? 'active' : ''}`
+          }
+          if (card) {
+            card.classList.toggle('disabled', !isEnabled)
+          }
+          // Remove injected style if disabled
+          if (!isEnabled) {
+            document.getElementById(`plugin-style-${pluginId}`)?.remove()
+          }
+          await renderPluginsScreen()
+        } catch (err: any) {
+          alert(`Failed to toggle plugin: ${err.message}`)
+          target.checked = !isEnabled
+        } finally {
+          target.disabled = false
+        }
+      })
+    })
+
+    // Attach Open listeners
+    document.querySelectorAll('.btn-open-plugin').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pluginId = btn.getAttribute('data-plugin-id')!
+        const selected = plugins.find(p => p.id === pluginId)
+        if (selected) {
+          openPluginView(selected)
+        }
+      })
+    })
+
+    // Attach Delete listeners
+    document.querySelectorAll('.btn-delete-plugin').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const pluginId = btn.getAttribute('data-plugin-id')!
+        if (confirm('Are you sure you want to uninstall this plugin? All its local files will be removed.')) {
+          const res = await window.api.deletePlugin(pluginId)
+          if (res.success) {
+            document.getElementById(`plugin-style-${pluginId}`)?.remove()
+            await renderPluginsScreen()
+          } else {
+            alert(`Failed to delete plugin: ${res.error}`)
+          }
+        }
+      })
+    })
+
+  } catch (e: any) {
+    console.error('Failed to load plugins:', e)
+    const container = document.getElementById('plugins-list-container')
+    if (container) {
+      container.innerHTML = `<p style="color: #ef4444; padding: 20px;">Failed to load plugins: ${e.message}</p>`
+    }
+  }
+}
+
+async function openPluginView(plugin: PluginInfo): Promise<void> {
+  lastListViewTitle = plugin.name
+  contentView.innerHTML = `
+    <div class="plugin-view-screen">
+      <div class="plugin-screen-nav-bar">
+        <div class="plugin-screen-nav-left">
+          <button class="btn-secondary" id="btn-back-to-plugins" style="padding: 6px 14px; font-size: 13px; gap: 6px;">
+            <i data-lucide="arrow-left"></i> Back to Plugins
+          </button>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <i data-lucide="${escapeHtml(plugin.icon || 'puzzle')}" style="color: var(--accent); width: 22px; height: 22px;"></i>
+            <h2 style="margin: 0; font-size: 18px; font-weight: 700; color: var(--text-main);">${escapeHtml(plugin.name)}</h2>
+            <span class="plugin-version">v${escapeHtml(plugin.version || '1.0.0')}</span>
+          </div>
+        </div>
+      </div>
+      <div class="plugin-screen-body" id="plugin-screen-body">
+        <div id="plugin-dom-mount">
+          <div style="display: flex; align-items: center; justify-content: center; padding: 60px; color: var(--text-muted); gap: 12px;">
+            <i data-lucide="loader" class="spinner" style="width: 24px; height: 24px; animation: spin 1s linear infinite;"></i>
+            <span>Loading plugin UI...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  const cleanupStyles = () => {
+    document.getElementById(`plugin-style-${plugin.id}`)?.remove()
+  }
+
+  document.getElementById('btn-back-to-plugins')?.addEventListener('click', () => {
+    cleanupStyles()
+    renderPluginsScreen()
+  })
+
+  const mountContainer = document.getElementById('plugin-dom-mount')!
+
+  // Load custom styles if defined
+  if (plugin.styles) {
+    const styleRes = await window.api.getPluginAsset(plugin.id, 'styles')
+    if (styleRes.success && styleRes.content) {
+      let existingStyle = document.getElementById(`plugin-style-${plugin.id}`)
+      if (!existingStyle) {
+        existingStyle = document.createElement('style')
+        existingStyle.id = `plugin-style-${plugin.id}`
+        document.head.appendChild(existingStyle)
+      }
+      existingStyle.textContent = styleRes.content
+    }
+  }
+
+  // Load plugin script
+  const scriptRes = await window.api.getPluginAsset(plugin.id, 'main')
+  if (!scriptRes.success || !scriptRes.content) {
+    mountContainer.innerHTML = `
+      <div style="padding: 30px; text-align: center; color: #ef4444;">
+        <i data-lucide="alert-triangle" style="width: 36px; height: 36px; margin-bottom: 12px;"></i>
+        <p>Failed to load plugin script: ${escapeHtml(scriptRes.error || 'Main script file not found')}</p>
+        <button class="btn-secondary" id="btn-retry-plugin" style="margin-top: 14px; gap: 6px;">
+          <i data-lucide="refresh-cw"></i> Retry
+        </button>
+      </div>
+    `
+    if ((window as any).lucide) (window as any).lucide.createIcons()
+    document.getElementById('btn-retry-plugin')?.addEventListener('click', () => {
+      openPluginView(plugin)
+    })
+    return
+  }
+
+  try {
+    mountContainer.innerHTML = ''
+
+    // Scoped plugin API (principle of least privilege)
+    const scopedPluginApi = {
+      getPlugins: window.api.getPlugins,
+      checkYtDlp: window.api.checkYtDlp,
+      getYtVideoInfo: window.api.getYtVideoInfo,
+      convertYtMedia: window.api.convertYtMedia,
+      onYtDlpProgress: window.api.onYtDlpProgress,
+      getThemes: window.api.getThemes,
+      getLibrary: window.api.getLibrary
+    }
+
+    const pluginContext = {
+      container: mountContainer,
+      api: scopedPluginApi,
+      plugin,
+      refreshLibrary: async () => {
+        await loadLibrary()
+      },
+      navigateTo: (screenId: string) => {
+        cleanupStyles()
+        const btn = document.getElementById(screenId)
+        btn?.click()
+      }
+    }
+
+    // Execute plugin runner inside DOM container
+    const runner = new Function('context', scriptRes.content)
+    runner(pluginContext)
+
+    if ((window as any).lucide) (window as any).lucide.createIcons()
+  } catch (err: any) {
+    console.error('Error mounting plugin:', err)
+    mountContainer.innerHTML = `
+      <div style="padding: 30px; text-align: center; color: #ef4444;">
+        <i data-lucide="alert-triangle" style="width: 36px; height: 36px; margin-bottom: 12px;"></i>
+        <p>Error executing plugin: ${escapeHtml(err.message)}</p>
+      </div>
+    `
+    if ((window as any).lucide) (window as any).lucide.createIcons()
+  }
 }
 

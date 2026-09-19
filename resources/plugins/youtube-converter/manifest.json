@@ -1,0 +1,11 @@
+{
+  "id": "youtube-converter",
+  "name": "YouTube Converter",
+  "version": "1.0.0",
+  "description": "Convert and download YouTube videos to MP3 audio or MP4 video directly into your BlackBird library.",
+  "author": "BlackBird Team",
+  "icon": "youtube",
+  "main": "index.js",
+  "styles": "style.css",
+  "enabled": true
+}

@@ -20,6 +20,11 @@ if (!fs.existsSync(coversDir)) {
   fs.mkdirSync(coversDir, { recursive: true });
 }
 
+export const pluginsDir = path.join(baseConfigDir, 'plugins');
+if (!fs.existsSync(pluginsDir)) {
+  fs.mkdirSync(pluginsDir, { recursive: true });
+}
+
 function saveCoverToFile(uuid: string, coverData: string | null | undefined): string | null {
   if (!coverData) return null;
   if (!coverData.startsWith('data:')) return coverData; // Already a path or URL
@@ -231,6 +236,40 @@ try {
       FOREIGN KEY(track_uuid) REFERENCES tracks(uuid) ON DELETE CASCADE
     );
   `);
+}
+
+try {
+  db.prepare('SELECT id FROM plugins LIMIT 0').all();
+} catch (e) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS plugins (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      version TEXT,
+      description TEXT,
+      author TEXT,
+      icon TEXT,
+      main TEXT,
+      styles TEXT,
+      enabled INTEGER DEFAULT 1,
+      folder_path TEXT NOT NULL,
+      installed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+}
+
+export interface DBPlugin {
+  id: string;
+  name: string;
+  version?: string;
+  description?: string;
+  author?: string;
+  icon?: string;
+  main?: string;
+  styles?: string;
+  enabled: number;
+  folder_path: string;
+  installed_at?: string;
 }
 
 export interface DBTrack {
@@ -775,6 +814,51 @@ export const dbOps = {
 
   deleteUserRadio: (id: string) => {
     return db.prepare('DELETE FROM user_radios WHERE id = ?').run(id);
+  },
+
+  // Plugins
+  getPlugins: (): DBPlugin[] => {
+    return db.prepare('SELECT * FROM plugins ORDER BY name ASC').all() as DBPlugin[];
+  },
+
+  getPluginById: (id: string): DBPlugin | undefined => {
+    return db.prepare('SELECT * FROM plugins WHERE id = ?').get(id) as DBPlugin | undefined;
+  },
+
+  upsertPlugin: (plugin: DBPlugin) => {
+    const stmt = db.prepare(`
+      INSERT INTO plugins (id, name, version, description, author, icon, main, styles, enabled, folder_path)
+      VALUES (@id, @name, @version, @description, @author, @icon, @main, @styles, @enabled, @folder_path)
+      ON CONFLICT(id) DO UPDATE SET
+        name=excluded.name,
+        version=excluded.version,
+        description=excluded.description,
+        author=excluded.author,
+        icon=excluded.icon,
+        main=excluded.main,
+        styles=excluded.styles,
+        folder_path=excluded.folder_path
+    `);
+    return stmt.run({
+      id: plugin.id,
+      name: plugin.name,
+      version: plugin.version || '',
+      description: plugin.description || '',
+      author: plugin.author || '',
+      icon: plugin.icon || '',
+      main: plugin.main || 'index.js',
+      styles: plugin.styles || '',
+      enabled: plugin.enabled !== undefined ? plugin.enabled : 1,
+      folder_path: plugin.folder_path
+    });
+  },
+
+  togglePlugin: (id: string, enabled: number) => {
+    return db.prepare('UPDATE plugins SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
+  },
+
+  deletePlugin: (id: string) => {
+    return db.prepare('DELETE FROM plugins WHERE id = ?').run(id);
   },
 
   resetAllData: (options: { clearCovers?: boolean } = { clearCovers: true }) => {

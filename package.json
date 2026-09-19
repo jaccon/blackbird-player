@@ -26,6 +26,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "adm-zip": "^0.6.1",
     "better-sqlite3": "^11.10.0",
     "chromecast-api": "^0.4.2",
     "local-ip-url": "^1.0.10",
@@ -37,6 +38,7 @@
     "@electron-toolkit/eslint-config-prettier": "^2.0.0",
     "@electron-toolkit/eslint-config-ts": "^2.0.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
+    "@types/adm-zip": "^0.5.8",
     "@types/node": "^22.19.1",
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3",

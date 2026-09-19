@@ -36,6 +36,34 @@ export interface HiddenFolder {
   trackCount?: number;
 }
 
+export interface PluginInfo {
+  id: string;
+  name: string;
+  version?: string;
+  description?: string;
+  author?: string;
+  icon?: string;
+  main?: string;
+  styles?: string;
+  enabled: number;
+  folder_path: string;
+  installed_at?: string;
+}
+
+export interface YtDlpStatus {
+  available: boolean;
+  path?: string;
+  ffmpegAvailable: boolean;
+}
+
+export interface YtProgress {
+  percent: number;
+  speed?: string;
+  eta?: string;
+  status: 'starting' | 'downloading' | 'converting' | 'completed' | 'error';
+  message?: string;
+}
+
 declare global {
   interface Window {
     electron: ElectronAPI
@@ -88,6 +116,18 @@ declare global {
       setSetting: (key: string, value: string) => Promise<any>;
       importHiddenFiles: (folderId?: string | null) => Promise<{ success: boolean, count: number }>;
       resetAppData: (options?: { clearCovers?: boolean }) => Promise<{ success: boolean, error?: string }>;
+      // Plugins
+      getPlugins: () => Promise<PluginInfo[]>;
+      installPluginFromUrl: (url: string) => Promise<{ success: boolean; plugin?: PluginInfo; error?: string }>;
+      installPluginFromFile: () => Promise<{ success: boolean; plugin?: PluginInfo; error?: string }>;
+      togglePlugin: (id: string, enabled: boolean) => Promise<{ success: boolean; enabled?: boolean; error?: string }>;
+      deletePlugin: (id: string) => Promise<{ success: boolean; error?: string }>;
+      getPluginAsset: (id: string, assetType: 'main' | 'styles') => Promise<{ success: boolean; content?: string; error?: string }>;
+      // YouTube / yt-dlp
+      checkYtDlp: () => Promise<YtDlpStatus>;
+      getYtVideoInfo: (url: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+      convertYtMedia: (options: { url: string; format: 'mp3' | 'mp4'; customTitle?: string; customArtist?: string }) => Promise<{ success: boolean; track?: TrackMetadata; error?: string }>;
+      onYtDlpProgress: (callback: (progress: YtProgress) => void) => () => void;
     }
   }
 }

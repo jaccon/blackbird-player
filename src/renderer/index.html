@@ -45,6 +45,7 @@
             <li id="btn-statistics"><i data-lucide="bar-chart-2"></i> Statistics</li>
             <li id="btn-history"><i data-lucide="clock"></i> History</li>
             <li id="btn-hidden-files"><i data-lucide="lock"></i> Hidden Files</li>
+            <li id="btn-plugins"><i data-lucide="puzzle"></i> Plugins</li>
             <li id="btn-setup"><i data-lucide="settings"></i> Setup</li>
             <li id="btn-server"><i data-lucide="server"></i> Server</li>
             <li id="btn-about"><i data-lucide="info"></i> About</li>
@@ -357,6 +358,35 @@
       <div class="modal-footer">
         <button class="btn-secondary btn-cancel-modal">Cancel</button>
         <button class="btn-primary" id="btn-save-radio">Add Radio</button>
+      </div>
+    </div>
+
+    <!-- Plugin Install Modal -->
+    <div id="plugin-install-modal" class="modal-content hidden">
+      <div class="modal-header">
+        <h2>Install Plugin</h2>
+        <button class="btn-icon circle-small btn-close-modal"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-subtitle" style="margin-bottom: 16px; color: var(--text-muted); font-size: 13px;">
+          Install a BlackBird plugin from a web ZIP URL or choose a local ZIP archive.
+        </p>
+        <div class="input-group">
+          <label for="plugin-url-input">Plugin ZIP Web URL</label>
+          <input type="text" id="plugin-url-input" placeholder="https://example.com/plugins/my-plugin.zip">
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; margin: 16px 0;">
+          <div style="flex: 1; height: 1px; background: var(--border);"></div>
+          <span style="color: var(--text-muted); font-size: 12px; text-transform: uppercase;">or</span>
+          <div style="flex: 1; height: 1px; background: var(--border);"></div>
+        </div>
+        <button type="button" class="btn-secondary" id="btn-install-plugin-file" style="width: 100%; justify-content: center; gap: 8px;">
+          <i data-lucide="folder-archive"></i> Choose Local ZIP File...
+        </button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary btn-cancel-modal">Cancel</button>
+        <button class="btn-primary" id="btn-confirm-install-plugin">Install from Web</button>
       </div>
     </div>
   </div>

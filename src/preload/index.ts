@@ -51,7 +51,27 @@ const api = {
   getSetting: (key: string) => ipcRenderer.invoke('get-setting', key),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('set-setting', { key, value }),
   importHiddenFiles: (folderId?: string | null) => ipcRenderer.invoke('import-hidden-files', folderId),
-  resetAppData: (options?: { clearCovers?: boolean }) => ipcRenderer.invoke('reset-app-data', options)
+  resetAppData: (options?: { clearCovers?: boolean }) => ipcRenderer.invoke('reset-app-data', options),
+  // Plugins APIs
+  getPlugins: () => ipcRenderer.invoke('plugin:list'),
+  installPluginFromUrl: (url: string) => ipcRenderer.invoke('plugin:install-url', url),
+  installPluginFromFile: () => ipcRenderer.invoke('plugin:install-file'),
+  togglePlugin: (id: string, enabled: boolean) => ipcRenderer.invoke('plugin:toggle', { id, enabled }),
+  deletePlugin: (id: string) => ipcRenderer.invoke('plugin:delete', id),
+  getPluginAsset: (id: string, assetType: 'main' | 'styles') =>
+    ipcRenderer.invoke('plugin:get-asset', { id, assetType }),
+  // YouTube & yt-dlp APIs
+  checkYtDlp: () => ipcRenderer.invoke('ytdlp:check'),
+  getYtVideoInfo: (url: string) => ipcRenderer.invoke('ytdlp:get-info', url),
+  convertYtMedia: (options: { url: string; format: 'mp3' | 'mp4'; customTitle?: string; customArtist?: string }) =>
+    ipcRenderer.invoke('ytdlp:convert', options),
+  onYtDlpProgress: (callback: (progress: any) => void) => {
+    const listener = (_: any, value: any) => callback(value)
+    ipcRenderer.on('ytdlp:progress', listener)
+    return () => {
+      ipcRenderer.removeListener('ytdlp:progress', listener)
+    }
+  }
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
