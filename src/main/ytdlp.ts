@@ -366,13 +366,25 @@ export class YtDlpService {
             cover: cover || undefined,
             duration,
             is_favorite: 0,
-            description: videoData ? videoData.description : ''
+            is_hidden: 0,
+            hidden_folder_id: null,
+            description: videoData ? videoData.description : '',
+            lyrics: ''
           };
 
           try {
             dbOps.upsertTrack(track);
-          } catch (dbErr) {
+          } catch (dbErr: any) {
             console.error('[YtDlpService] Failed to upsert track in DB:', dbErr);
+            emitProgress({
+              percent: 0,
+              status: 'error',
+              message: `Conversion finished, but failed to save in library database: ${dbErr?.message || dbErr}`
+            });
+            return resolve({
+              success: false,
+              error: `Media converted at ${finalFilePath}, but failed to add to database: ${dbErr?.message || dbErr}`
+            });
           }
 
           emitProgress({

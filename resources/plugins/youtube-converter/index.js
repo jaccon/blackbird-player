@@ -93,14 +93,22 @@
         </div>
 
         <!-- Success Box -->
-        <div id="yt-success-box" style="display: none; margin-top: 22px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 16px; align-items: center; justify-content: space-between;">
+        <div id="yt-success-box" style="display: none; margin-top: 22px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
           <div style="display: flex; align-items: center; gap: 10px; color: #10b981;">
-            <i data-lucide="check-circle" style="width: 20px; height: 20px;"></i>
-            <span id="yt-success-message" style="font-weight: 600; font-size: 14px;">Media successfully converted and added to BlackBird library!</span>
+            <i data-lucide="check-circle" style="width: 20px; height: 20px; flex-shrink: 0;"></i>
+            <div>
+              <div id="yt-success-message" style="font-weight: 600; font-size: 14px;">Media successfully converted and added to BlackBird library!</div>
+              <div id="yt-success-path" style="font-size: 12px; color: var(--text-muted); margin-top: 3px; word-break: break-all;"></div>
+            </div>
           </div>
-          <button class="btn-secondary" id="btn-yt-view-media" style="padding: 8px 16px; font-size: 13px; font-weight: 600;">
-            View in Library
-          </button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-secondary" id="btn-yt-open-folder" style="padding: 8px 14px; font-size: 13px; font-weight: 600;">
+              Open Folder
+            </button>
+            <button class="btn-secondary" id="btn-yt-view-media" style="padding: 8px 16px; font-size: 13px; font-weight: 600;">
+              View in Library
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -129,6 +137,8 @@
 
   const successBox = container.querySelector('#yt-success-box');
   const successMessage = container.querySelector('#yt-success-message');
+  const successPath = container.querySelector('#yt-success-path');
+  const btnOpenFolder = container.querySelector('#btn-yt-open-folder');
   const btnViewMedia = container.querySelector('#btn-yt-view-media');
 
   const sysBanner = container.querySelector('#yt-sys-banner');
@@ -258,6 +268,20 @@
 
         successBox.style.display = 'flex';
         successMessage.textContent = `"${result.track.title}" converted to ${selectedFormat.toUpperCase()} and added to library!`;
+
+        const savedPath = result.track.file_path || (result.track.filePath);
+        if (successPath && savedPath) {
+          successPath.textContent = `Saved in: ${savedPath}`;
+        }
+
+        if (btnOpenFolder && savedPath) {
+          btnOpenFolder.onclick = () => {
+            const folder = savedPath.substring(0, savedPath.lastIndexOf('/'));
+            if (api.openPath) {
+              api.openPath(folder);
+            }
+          };
+        }
 
         btnViewMedia.onclick = () => {
           if (selectedFormat === 'mp3') {

@@ -307,14 +307,19 @@ export interface Playlist {
 export const dbOps = {
   // Tracks
   upsertTrack: (track: DBTrack) => {
-    if (track.cover && track.cover.startsWith('data:')) {
-      track.cover = saveCoverToFile(track.uuid, track.cover) || undefined;
+    let cover = track.cover;
+    if (cover && cover.startsWith('data:')) {
+      cover = saveCoverToFile(track.uuid, cover) || undefined;
     }
 
     const is_hidden = track.is_hidden !== undefined ? track.is_hidden : 0;
     const hidden_folder_id = track.hidden_folder_id !== undefined ? track.hidden_folder_id : null;
     const mimetype = track.mimetype || null;
     const kind = track.kind || track.format || null;
+    const lyrics = track.lyrics || '';
+    const description = track.description || '';
+    const duration = track.duration !== undefined ? track.duration : 0;
+    const is_favorite = track.is_favorite !== undefined ? track.is_favorite : 0;
 
     const stmt = db.prepare(`
       INSERT INTO tracks (uuid, title, artist, album, file_path, format, mimetype, kind, cover, duration, is_favorite, is_hidden, hidden_folder_id, description, lyrics)
@@ -331,7 +336,23 @@ export const dbOps = {
         description=excluded.description,
         lyrics=excluded.lyrics
     `);
-    return stmt.run({ ...track, is_hidden, hidden_folder_id, mimetype, kind });
+    return stmt.run({
+      uuid: track.uuid,
+      title: track.title || '',
+      artist: track.artist || '',
+      album: track.album || '',
+      file_path: track.file_path,
+      format: track.format || 'unknown',
+      mimetype,
+      kind,
+      cover: cover || null,
+      duration,
+      is_favorite,
+      is_hidden,
+      hidden_folder_id,
+      description,
+      lyrics
+    });
   },
 
   upsertTracksBatch: (tracks: DBTrack[]) => {
@@ -355,14 +376,36 @@ export const dbOps = {
 
     const insertMany = db.transaction((items: DBTrack[]) => {
       for (const track of items) {
-        if (track.cover && track.cover.startsWith('data:')) {
-          track.cover = saveCoverToFile(track.uuid, track.cover) || undefined;
+        let cover = track.cover;
+        if (cover && cover.startsWith('data:')) {
+          cover = saveCoverToFile(track.uuid, cover) || undefined;
         }
         const is_hidden = track.is_hidden !== undefined ? track.is_hidden : 0;
         const hidden_folder_id = track.hidden_folder_id !== undefined ? track.hidden_folder_id : null;
         const mimetype = track.mimetype || null;
         const kind = track.kind || track.format || null;
-        stmt.run({ ...track, is_hidden, hidden_folder_id, mimetype, kind });
+        const lyrics = track.lyrics || '';
+        const description = track.description || '';
+        const duration = track.duration !== undefined ? track.duration : 0;
+        const is_favorite = track.is_favorite !== undefined ? track.is_favorite : 0;
+
+        stmt.run({
+          uuid: track.uuid,
+          title: track.title || '',
+          artist: track.artist || '',
+          album: track.album || '',
+          file_path: track.file_path,
+          format: track.format || 'unknown',
+          mimetype,
+          kind,
+          cover: cover || null,
+          duration,
+          is_favorite,
+          is_hidden,
+          hidden_folder_id,
+          description,
+          lyrics
+        });
       }
     });
 
