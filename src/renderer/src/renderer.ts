@@ -3611,7 +3611,12 @@ function playTrack(index: number, resumePosition?: number): void {
         videoPlayer.addEventListener('canplay', applyPos, { once: true })
       }
     }
-    videoPlayer.play()
+    videoPlayer.play().catch(err => {
+      console.error('playTrack: Video Playback Error:', err)
+      if ((window as any).showRadioToast) {
+        ;(window as any).showRadioToast(`Video Playback Error: ${err.message || 'Failed to load'}. URL: ${fileUrl}`)
+      }
+    })
   } else {
     videoOverlay.classList.add('hidden')
     videoPlayer.pause()
@@ -3657,8 +3662,8 @@ function playTrack(index: number, resumePosition?: number): void {
       console.log('playTrack: Successfully started playing:', fileUrl)
     }).catch(err => {
       console.error('playTrack: Audio Playback Error:', err)
-      if (fileUrl.startsWith('http') && (window as any).showRadioToast) {
-        ;(window as any).showRadioToast(`Playback Blocked: ${err.message || 'Network/Protocol error'}`)
+      if ((window as any).showRadioToast) {
+        ;(window as any).showRadioToast(`Playback Error: ${err.message || 'Unknown'}. URL: ${fileUrl}`)
       }
     })
   }

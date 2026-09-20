@@ -29,6 +29,19 @@ app.commandLine.appendSwitch('disable-site-isolation-trials')
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
 const castClient = new ChromecastAPI()
+
+// Prevent Chromecast network scanning timeouts (ETIMEDOUT) from crashing/disrupting the main process
+process.on('uncaughtException', (err) => {
+  if (err.message && err.message.includes('ETIMEDOUT')) {
+    console.warn('[Network/Chromecast] Ignoring timeout error:', err.message)
+  } else {
+    console.error('Uncaught Exception in Main Process:', err)
+  }
+})
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection in Main Process:', reason)
+})
 let castMediaServer: http.Server | null = null
 let castMediaPort = 0
 
@@ -107,9 +120,11 @@ app.whenReady().then(async () => {
   // Register file:// protocol replacement for security/local access
   protocol.handle('local', (request) => {
     try {
-      const decodedUrl = decodeURIComponent(request.url.replace(/^local:\/\//, ''))
+      // Strip 'local://' or 'local:///' completely, leaving just the path or drive letter
+      const rawPath = request.url.replace(/^local:\/\/+/, '')
+      const decodedUrl = decodeURIComponent(rawPath)
       const withoutParams = decodedUrl.split('?')[0].split('#')[0]
-      // Add the leading slash back for macOS/Linux if it was stripped, Windows handles C:/ fine
+      // Add the leading slash back for macOS/Linux if it doesn't have one and isn't a Windows drive
       const finalPath = withoutParams.startsWith('/') || withoutParams.match(/^[a-zA-Z]:[\\/]/) ? withoutParams : '/' + withoutParams
       const fileUrl = pathToFileURL(finalPath).toString()
       return net.fetch(fileUrl)
