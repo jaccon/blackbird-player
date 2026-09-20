@@ -117,6 +117,10 @@ let sidebarTrack: TrackMetadata | null = null
 let lastListViewTitle: string = 'Home'
 let currentRadioBeingViewed: any = null
 let isRadioMode = false
+let isM3uMode = false
+let currentM3uIndex = -1
+let currentM3uList: any[] = []
+let currentHls: any = null
 
 const audio = new Audio()
 let videoPlayer: HTMLVideoElement
@@ -236,6 +240,20 @@ async function init(): Promise<void> {
     videoPlayer = document.getElementById('video-player') as HTMLVideoElement
     videoOverlay = document.getElementById('video-overlay')!
     btnCloseVideo = document.getElementById('btn-close-video')!
+    
+    const btnPipVideoInit = document.getElementById('btn-pip-video')
+    if (btnPipVideoInit) {
+      btnPipVideoInit.onclick = async () => {
+        try {
+          if (document.pictureInPictureElement) {
+            await document.exitPictureInPicture()
+          } else if (document.pictureInPictureEnabled && videoPlayer) {
+            await videoPlayer.requestPictureInPicture()
+          }
+        } catch (err) { console.error(err) }
+      }
+    }
+    
     contentView = document.getElementById('content-view')!
 
     // Assign new button
@@ -897,11 +915,7 @@ function attachListeners(): void {
     updateVolume(parseInt(volumeSlider.value))
   })
 
-  btnCloseVideo.addEventListener('click', () => {
-    videoPlayer.pause()
-    videoOverlay.classList.add('hidden')
-    audio.play()
-  })
+  btnCloseVideo.addEventListener('click', handleCloseVideo)
 }
 
 function attachGlobalClickDelegation(): void {
@@ -3556,15 +3570,24 @@ function playTrack(index: number, resumePosition?: number): void {
     const container = document.getElementById('video-overlay')!
     container.innerHTML = `
       <video id="video-player" controls></video>
+      <button id="btn-pip-video" class="btn-icon circle" title="Picture in Picture"><i data-lucide="picture-in-picture"></i></button>
       <button id="btn-close-video" class="btn-icon circle"><i data-lucide="x"></i></button>
     `
     videoPlayer = document.getElementById('video-player') as HTMLVideoElement
-    btnCloseVideo = document.getElementById('btn-close-video')!
-    btnCloseVideo.onclick = () => {
-      videoPlayer.pause()
-      videoOverlay.classList.add('hidden')
-      audio.play()
+    
+    const btnPipVideo1 = document.getElementById('btn-pip-video')!
+    btnPipVideo1.onclick = async () => {
+      try {
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture()
+        } else if (document.pictureInPictureEnabled && videoPlayer) {
+          await videoPlayer.requestPictureInPicture()
+        }
+      } catch (err) { console.error(err) }
     }
+
+    btnCloseVideo = document.getElementById('btn-close-video')!
+    btnCloseVideo.onclick = handleCloseVideo
     if ((window as any).lucide) (window as any).lucide.createIcons()
   }
 
@@ -3583,15 +3606,24 @@ function playTrack(index: number, resumePosition?: number): void {
     document.getElementById('btn-close-video')!.onclick = () => {
       container.innerHTML = `
         <video id="video-player" controls></video>
+        <button id="btn-pip-video" class="btn-icon circle" title="Picture in Picture"><i data-lucide="picture-in-picture"></i></button>
         <button id="btn-close-video" class="btn-icon circle"><i data-lucide="x"></i></button>
       `
       videoPlayer = document.getElementById('video-player') as HTMLVideoElement
-      btnCloseVideo = document.getElementById('btn-close-video')!
-      btnCloseVideo.onclick = () => {
-        videoPlayer.pause()
-        videoOverlay.classList.add('hidden')
-        audio.play()
+      
+      const btnPipVideo2 = document.getElementById('btn-pip-video')!
+      btnPipVideo2.onclick = async () => {
+        try {
+          if (document.pictureInPictureElement) {
+            await document.exitPictureInPicture()
+          } else if (document.pictureInPictureEnabled && videoPlayer) {
+            await videoPlayer.requestPictureInPicture()
+          }
+        } catch (err) { console.error(err) }
       }
+
+      btnCloseVideo = document.getElementById('btn-close-video')!
+      btnCloseVideo.onclick = handleCloseVideo
       videoOverlay.classList.add('hidden')
       audio.play()
       if ((window as any).lucide) (window as any).lucide.createIcons()
@@ -3802,6 +3834,14 @@ function playNext(e?: Event): void {
     return
   }
   
+  if (isM3uMode) {
+    if (currentM3uList.length === 0) return;
+    let nextIndex = currentM3uIndex + 1;
+    if (nextIndex >= currentM3uList.length) nextIndex = 0;
+    playM3uChannel(currentM3uList[nextIndex], nextIndex);
+    return;
+  }
+  
   if (isShuffle && !isRadioMode) {
     playTrack(Math.floor(Math.random() * currentPlaylist.length))
   } else {
@@ -3817,9 +3857,39 @@ function playPrev(e?: Event): void {
     return
   }
   
+  if (isM3uMode) {
+    if (currentM3uList.length === 0) return;
+    let prevIndex = currentM3uIndex - 1;
+    if (prevIndex < 0) prevIndex = currentM3uList.length - 1;
+    playM3uChannel(currentM3uList[prevIndex], prevIndex);
+    return;
+  }
+  
   let prevIndex = currentTrackIndex - 1
   if (prevIndex < 0) prevIndex = currentPlaylist.length - 1
   playTrack(prevIndex)
+}
+function handleCloseVideo(): void {
+  videoPlayer.pause()
+  videoOverlay.classList.add('hidden')
+  if (isM3uMode) {
+    if (currentHls) {
+      currentHls.destroy()
+      currentHls = null
+    }
+    isM3uMode = false
+    videoPlayer.src = ''
+    
+    // Reset player UI
+    const btnPlayPause = document.getElementById('btn-play-pause')
+    if (btnPlayPause) {
+      btnPlayPause.innerHTML = '<i data-lucide="play"></i>'
+      btnPlayPause.classList.remove('is-playing')
+    }
+    if ((window as any).lucide) (window as any).lucide.createIcons()
+  } else {
+    audio.play().catch(e => console.error(e))
+  }
 }
 
 function handleTrackEnded(): void {
@@ -4885,3 +4955,230 @@ async function openPluginView(plugin: PluginInfo): Promise<void> {
   }
 }
 
+
+
+// M3U Logic
+let m3uChannelsCache: any[] = [];
+let currentM3uFilter = '';
+
+function renderM3UView() {
+  contentView.innerHTML = `<div style="display: flex; flex-direction: column; height: 100%;">
+    <div class="alphabet-filter" id="m3u-alphabet-filter"></div>
+    <div class="media-grid" id="m3u-grid" style="padding: 16px; overflow-y: auto; flex: 1;"></div>
+  </div>`;
+  
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  const filterContainer = document.getElementById('m3u-alphabet-filter')!;
+  
+  const allBtn = document.createElement('button');
+  allBtn.className = 'alphabet-btn' + (currentM3uFilter === '' ? ' active' : '');
+  allBtn.textContent = 'All';
+  allBtn.style.width = '40px';
+  allBtn.onclick = () => { currentM3uFilter = ''; renderM3UView(); };
+  filterContainer.appendChild(allBtn);
+  
+  const favBtn = document.createElement('button');
+  favBtn.className = 'alphabet-btn' + (currentM3uFilter === 'FAV' ? ' active' : '');
+  favBtn.innerHTML = '<i data-lucide="heart" style="width: 14px; height: 14px;"></i>';
+  favBtn.onclick = () => { currentM3uFilter = 'FAV'; renderM3UView(); };
+  filterContainer.appendChild(favBtn);
+  
+  alphabet.forEach(letter => {
+    const btn = document.createElement('button');
+    btn.className = 'alphabet-btn' + (currentM3uFilter === letter ? ' active' : '');
+    btn.textContent = letter;
+    btn.onclick = () => { currentM3uFilter = letter; renderM3UView(); };
+    filterContainer.appendChild(btn);
+  });
+  
+  lucide.createIcons();
+  
+  renderM3UGrid();
+}
+
+async function renderM3UGrid() {
+  const grid = document.getElementById('m3u-grid');
+  if(!grid) return;
+  grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted);"><i data-lucide="loader" class="spinner"></i></div>';
+  lucide.createIcons();
+  
+  try {
+    m3uChannelsCache = await (window as any).api.getM3uChannels();
+    grid.innerHTML = '';
+    
+    const filtered = m3uChannelsCache.filter(ch => {
+      if (currentM3uFilter === '') return true;
+      if (currentM3uFilter === 'FAV') return ch.is_favorite === 1;
+      return ch.name.toUpperCase().startsWith(currentM3uFilter);
+    });
+    
+    if(filtered.length === 0) {
+      grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted);">No channels found.</div>';
+      return;
+    }
+    grid.className = 'm3u-list';
+    currentM3uList = filtered;
+    
+    filtered.forEach((ch, index) => {
+      const card = document.createElement('div');
+      card.className = `m3u-list-item ${isM3uMode && currentM3uIndex === index ? 'playing' : ''}`;
+      card.innerHTML = `
+        <div class="m3u-logo-container">
+          ${ch.logo_url ? `<img src="${ch.logo_url}" class="m3u-logo" onerror="this.style.display='none'">` : '<i data-lucide="tv" class="m3u-logo-placeholder"></i>'}
+        </div>
+        <div class="m3u-info">
+          <div class="m3u-title" title="${ch.name}">${ch.name}</div>
+          <div class="m3u-category">${ch.group_title || 'Uncategorized'}</div>
+        </div>
+        <div class="m3u-actions">
+          <button class="m3u-action-btn ${ch.is_favorite ? 'favorite-active' : ''}" title="Favorite" onclick="event.stopPropagation(); window.toggleM3uFav('${ch.id}')">
+            <i data-lucide="heart" style="width: 14px; height: 14px;"></i>
+          </button>
+          <button class="m3u-action-btn" title="Remove" onclick="event.stopPropagation(); window.deleteM3u('${ch.id}')">
+            <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+          </button>
+        </div>
+      `;
+      card.onclick = () => playM3uChannel(ch, index);
+      grid.appendChild(card);
+    });
+    
+    lucide.createIcons();
+  } catch (e) {
+    grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted);">Error loading channels.</div>';
+  }
+}
+
+(window as any).toggleM3uFav = async (id: string) => {
+  await (window as any).api.toggleM3uFavorite(id);
+  renderM3UGrid();
+};
+
+(window as any).deleteM3u = async (id: string) => {
+  await (window as any).api.deleteM3uChannel(id);
+  renderM3UGrid();
+};
+
+function playM3uChannel(ch: any, index: number = -1) {
+  audio.pause();
+  isM3uMode = true;
+  isRadioMode = false;
+  currentM3uIndex = index;
+  
+  // Update Player UI
+  playerTitle.textContent = ch.name || 'Unknown Channel';
+  playerArtist.textContent = ch.group_title || 'IPTV';
+  playerAlbum.textContent = '';
+  playerFormat.textContent = 'M3U8';
+  playerArtwork.innerHTML = ch.logo_url 
+    ? `<img src="${ch.logo_url}" style="width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none'">` 
+    : `<div class="artwork-placeholder"><i data-lucide="tv"></i></div>`;
+    
+  const btnPlayPause = document.getElementById('btn-play-pause');
+  if (btnPlayPause) {
+    btnPlayPause.innerHTML = '<i data-lucide="pause"></i>';
+    btnPlayPause.classList.add('is-playing');
+  }
+  lucide.createIcons();
+
+  // Highlight selected channel in list
+  document.querySelectorAll('.m3u-list-item').forEach((item, i) => {
+    if (i === index) item.classList.add('playing');
+    else item.classList.remove('playing');
+  });
+
+  const videoOverlay = document.getElementById('video-overlay');
+  const videoPlayer = document.getElementById('video-player') as HTMLVideoElement;
+  if(videoOverlay && videoPlayer) {
+    videoOverlay.classList.remove('hidden');
+    
+    if (currentHls) {
+      currentHls.destroy();
+      currentHls = null;
+    }
+    
+    if((window as any).Hls && (window as any).Hls.isSupported()) {
+      currentHls = new (window as any).Hls();
+      currentHls.loadSource(ch.url);
+      currentHls.attachMedia(videoPlayer);
+      currentHls.on((window as any).Hls.Events.MANIFEST_PARSED, () => videoPlayer.play());
+      currentHls.on((window as any).Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+          console.warn("HLS failed, falling back to native player", data);
+          currentHls.destroy();
+          currentHls = null;
+          videoPlayer.src = ch.url;
+          videoPlayer.play().catch(e => console.error(e));
+        }
+      });
+    } else {
+      videoPlayer.src = ch.url;
+      videoPlayer.play().catch(e => console.error(e));
+    }
+  }
+}
+
+setTimeout(() => {
+  const btnM3uChannels = document.getElementById('btn-m3u-channels');
+  const btnImportM3u = document.getElementById('btn-import-m3u');
+  const m3uImportModal = document.getElementById('m3u-import-modal');
+  const btnCloseM3uModal = m3uImportModal?.querySelector('.btn-close-modal');
+  const btnCancelM3uModal = m3uImportModal?.querySelector('.btn-cancel-modal');
+  const btnImportM3uWeb = document.getElementById('btn-confirm-import-m3u');
+  const btnImportM3uFile = document.getElementById('btn-import-m3u-file');
+  const m3uUrlInput = document.getElementById('m3u-url-input') as HTMLInputElement;
+
+  if (btnM3uChannels) {
+    btnM3uChannels.addEventListener('click', () => {
+      // Deactivate all nav items and activate this one
+      document.querySelectorAll('.sidebar-nav li').forEach(el => el.classList.remove('active'));
+      btnM3uChannels.classList.add('active');
+      renderM3UView();
+    });
+  }
+  
+  if (btnImportM3u && m3uImportModal) {
+    btnImportM3u.style.display = 'inline-flex';
+    btnImportM3u.addEventListener('click', () => {
+      m3uImportModal.classList.remove('hidden');
+    });
+    
+    const closeModal = () => m3uImportModal.classList.add('hidden');
+    btnCloseM3uModal?.addEventListener('click', closeModal);
+    btnCancelM3uModal?.addEventListener('click', closeModal);
+    
+    btnImportM3uWeb?.addEventListener('click', async () => {
+      const url = m3uUrlInput?.value.trim();
+      if(url) {
+        btnImportM3uWeb.textContent = "Importing...";
+        try {
+          const count = await (window as any).api.importM3uUrl(url);
+          closeModal();
+          alert(`Successfully imported ${count} channels.`);
+          if(document.getElementById('m3u-alphabet-filter')) renderM3UGrid();
+        } catch(e) {
+          console.error(e);
+          alert("Error importing M3U");
+        }
+        btnImportM3uWeb.textContent = "Import from Web";
+      }
+    });
+    
+    btnImportM3uFile?.addEventListener('click', async () => {
+      const filePaths = await (window as any).api.selectM3uFile();
+      if (filePaths && filePaths.length > 0) {
+        try {
+          const count = await (window as any).api.importM3uFile(filePaths[0]);
+          closeModal();
+          alert(`Successfully imported ${count} channels.`);
+          if(document.getElementById('m3u-alphabet-filter')) renderM3UGrid();
+        } catch(e) {
+          console.error(e);
+          alert("Error importing M3U file");
+        }
+        btnImportM3uFile.innerHTML = "<i data-lucide='folder'></i> Choose Local M3U File...";
+        lucide.createIcons();
+      }
+    });
+  }
+}, 1500);

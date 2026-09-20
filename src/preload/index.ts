@@ -19,6 +19,7 @@ const api = {
   getFavorites: () => ipcRenderer.invoke('get-favorites'),
   getPlayHistory: () => ipcRenderer.invoke('get-play-history'),
   selectFiles: () => ipcRenderer.invoke('select-files'),
+  selectM3uFile: () => ipcRenderer.invoke('select-m3u-file'),
   getYTMeta: (url: string) => ipcRenderer.invoke('get-yt-metadata', url),
   processMeta: (filePath: string) => ipcRenderer.invoke('process-metadata', filePath),
   upsertTrack: (track: any) => ipcRenderer.invoke('upsert-track', track),
@@ -71,7 +72,13 @@ const api = {
     return () => {
       ipcRenderer.removeListener('ytdlp:progress', listener)
     }
-  }
+  },
+  // M3U APIs
+  importM3uFile: (filePath: string) => ipcRenderer.invoke('import-m3u-file', filePath),
+  importM3uUrl: (url: string) => ipcRenderer.invoke('import-m3u-url', url),
+  getM3uChannels: () => ipcRenderer.invoke('get-m3u-channels'),
+  toggleM3uFavorite: (id: string) => ipcRenderer.invoke('toggle-m3u-favorite', id),
+  deleteM3uChannel: (id: string) => ipcRenderer.invoke('delete-m3u-channel', id)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

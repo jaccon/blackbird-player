@@ -12,6 +12,8 @@ process.on('uncaughtException', (error) => {
 import icon from '../../resources/icon.png?asset'
 import { getMetadata, scanDirectory } from './metadata'
 import { dbOps } from './database'
+import { parseM3uFile, parseM3uUrl } from './m3u'
+
 import { startServer, stopServer, getServerStatus } from './server'
 import { v4 as uuidv4 } from 'uuid'
 import ChromecastAPI from 'chromecast-api'
@@ -238,7 +240,17 @@ app.whenReady().then(async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ['openFile', 'multiSelections'],
       filters: [
-        { name: 'Media & Photos', extensions: ['mp3', 'wav', 'ogg', 'mp4', 'webm', 'jpg', 'jpeg', 'png', 'gif'] }
+        { name: 'Media', extensions: ['mp3', 'wav', 'ogg', 'mp4', 'webm'] }
+      ]
+    })
+    return canceled ? null : filePaths
+  })
+
+  ipcMain.handle('select-m3u-file', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [
+        { name: 'M3U Playlists', extensions: ['m3u', 'm3u8'] }
       ]
     })
     return canceled ? null : filePaths
@@ -436,7 +448,35 @@ app.whenReady().then(async () => {
     return dbOps.hideTracks(args?.uuids || [], args?.folderId || null)
   })
   ipcMain.handle('unhide-tracks', (_, uuids: string[]) => dbOps.unhideTracks(uuids))
+  ipcMain.handle('get-track-cover', async (_, { uuid, filePath }) => {
+    try {
+      const metadata = await getMetadata(filePath, false)
+      if (metadata.cover) {
+        dbOps.updateTrack(uuid, { cover: metadata.cover })
+        return metadata.cover
+      }
+    } catch (e) {
+      console.error('Failed to get cover on demand', e)
+    }
+    return null
+  })
   ipcMain.handle('get-themes', () => dbOps.getThemes())
+
+  // M3U IPC Handlers
+  ipcMain.handle('import-m3u-file', async (_, filePath: string) => {
+    const channels = await parseM3uFile(filePath);
+    dbOps.importM3UChannels(channels);
+    return channels.length;
+  });
+  ipcMain.handle('import-m3u-url', async (_, url: string) => {
+    const channels = await parseM3uUrl(url);
+    dbOps.importM3UChannels(channels);
+    return channels.length;
+  });
+  ipcMain.handle('get-m3u-channels', () => dbOps.getM3UChannels());
+  ipcMain.handle('toggle-m3u-favorite', (_, id: string) => dbOps.toggleM3UFavorite(id));
+  ipcMain.handle('delete-m3u-channel', (_, id: string) => dbOps.deleteM3UChannel(id));
+
   ipcMain.handle('save-user-radio', (_, radio: any) => dbOps.saveUserRadio(radio))
   ipcMain.handle('get-user-radios', () => dbOps.getUserRadios())
   ipcMain.handle('delete-user-radio', (_, id: string) => dbOps.deleteUserRadio(id))

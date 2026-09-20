@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <title>BlackBird Player</title>
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https://img.youtube.com https://i.ytimg.com https://*.youtube-nocookie.com; media-src 'self' file: data: blob:; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; font-src https://fonts.gstatic.com;" />
+    content="default-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src * data: blob:; media-src * file: data: blob:; connect-src * data: blob:; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; font-src https://fonts.gstatic.com;" />
   <link href="./src/assets/main.css" type="text/css" rel="stylesheet" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -42,6 +42,7 @@
             <li id="btn-playlists-screen"><i data-lucide="list-music"></i> Playlists</li>
             <li id="btn-photos"><i data-lucide="image"></i> Photos</li>
             <li id="btn-radio"><i data-lucide="radio"></i> Radio</li>
+            <li id="btn-m3u-channels"><i data-lucide="tv"></i> IPTV / Channels</li>
             <li id="btn-statistics"><i data-lucide="bar-chart-2"></i> Statistics</li>
             <li id="btn-history"><i data-lucide="clock"></i> History</li>
             <li id="btn-hidden-files"><i data-lucide="lock"></i> Hidden Files</li>
@@ -85,6 +86,9 @@
           <button class="btn-secondary" id="btn-import-youtube">
             <i data-lucide="youtube"></i> Import from Youtube
           </button>
+          <button class="btn-secondary" id="btn-import-m3u" style="display: none;">
+            <i data-lucide="list-video"></i> Import M3U
+          </button>
         </div>
         <div class="user-profile">
           <!-- Profile icon here if needed -->
@@ -126,6 +130,7 @@
 
       <div id="video-overlay" class="video-overlay hidden">
         <video id="video-player" controls></video>
+        <button id="btn-pip-video" class="btn-icon circle" title="Picture in Picture"><i data-lucide="picture-in-picture"></i></button>
         <button id="btn-close-video" class="btn-icon circle"><i data-lucide="x"></i></button>
       </div>
     </main>
@@ -389,9 +394,39 @@
         <button class="btn-primary" id="btn-confirm-install-plugin">Install from Web</button>
       </div>
     </div>
+
+    <!-- M3U Import Modal -->
+    <div id="m3u-import-modal" class="modal-content hidden">
+      <div class="modal-header">
+        <h2>Import M3U Channels</h2>
+        <button class="btn-icon circle-small btn-close-modal"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-subtitle" style="margin-bottom: 16px; color: var(--text-muted); font-size: 13px;">
+          Import an IPTV or Radio M3U/M3U8 playlist from a web URL or a local file.
+        </p>
+        <div class="input-group">
+          <label for="m3u-url-input">M3U Web URL</label>
+          <input type="text" id="m3u-url-input" placeholder="https://example.com/playlist.m3u">
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; margin: 16px 0;">
+          <div style="flex: 1; height: 1px; background: var(--border);"></div>
+          <span style="color: var(--text-muted); font-size: 12px; text-transform: uppercase;">or</span>
+          <div style="flex: 1; height: 1px; background: var(--border);"></div>
+        </div>
+        <button type="button" class="btn-secondary" id="btn-import-m3u-file" style="width: 100%; justify-content: center; gap: 8px;">
+          <i data-lucide="folder"></i> Choose Local M3U File...
+        </button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary btn-cancel-modal">Cancel</button>
+        <button class="btn-primary" id="btn-confirm-import-m3u">Import from Web</button>
+      </div>
+    </div>
   </div>
 
   <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://unpkg.com/hls.js@latest"></script>
   <script type="module" src="./src/renderer.ts"></script>
   <script>
     window.addEventListener('load', () => {

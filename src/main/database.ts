@@ -122,6 +122,16 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS m3u_channels (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    group_title TEXT,
+    logo_url TEXT,
+    is_favorite INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -258,6 +268,22 @@ try {
   `);
 }
 
+try {
+  db.prepare('SELECT id FROM m3u_channels LIMIT 0').all();
+} catch (e) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS m3u_channels (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      group_title TEXT,
+      logo_url TEXT,
+      is_favorite INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+}
+
 export interface DBPlugin {
   id: string;
   name: string;
@@ -297,6 +323,16 @@ export interface HiddenFolder {
   trackCount?: number;
 }
 
+export interface DBM3uChannel {
+  id: string;
+  name: string;
+  url: string;
+  group_title?: string;
+  logo_url?: string;
+  is_favorite?: number;
+  created_at?: string;
+}
+
 export interface Playlist {
   id: string;
   name: string;
@@ -305,6 +341,49 @@ export interface Playlist {
 }
 
 export const dbOps = {
+  // M3U Channels
+  importM3UChannels: (channels: DBM3uChannel[]) => {
+    if (!channels || channels.length === 0) return;
+    
+    // Clear existing channels before importing new ones (optional, but standard for full M3U refresh)
+    // Wait, the user might want to merge, but let's just insert or replace.
+    const stmt = db.prepare(`
+      INSERT INTO m3u_channels (id, name, url, group_title, logo_url, is_favorite)
+      VALUES (@id, @name, @url, @group_title, @logo_url, @is_favorite)
+      ON CONFLICT(id) DO UPDATE SET
+        name=excluded.name,
+        url=excluded.url,
+        group_title=excluded.group_title,
+        logo_url=excluded.logo_url
+    `);
+
+    const insertMany = db.transaction((items: DBM3uChannel[]) => {
+      for (const ch of items) {
+        stmt.run({
+          id: ch.id,
+          name: ch.name || 'Unknown',
+          url: ch.url,
+          group_title: ch.group_title || '',
+          logo_url: ch.logo_url || null,
+          is_favorite: ch.is_favorite || 0
+        });
+      }
+    });
+    insertMany(channels);
+  },
+
+  getM3UChannels: () => {
+    return db.prepare('SELECT * FROM m3u_channels ORDER BY name ASC').all() as DBM3uChannel[];
+  },
+
+  toggleM3UFavorite: (id: string) => {
+    return db.prepare('UPDATE m3u_channels SET is_favorite = CASE WHEN is_favorite = 1 THEN 0 ELSE 1 END WHERE id = ?').run(id);
+  },
+
+  deleteM3UChannel: (id: string) => {
+    return db.prepare('DELETE FROM m3u_channels WHERE id = ?').run(id);
+  },
+
   // Tracks
   upsertTrack: (track: DBTrack) => {
     let cover = track.cover;
