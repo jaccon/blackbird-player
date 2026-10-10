@@ -8,7 +8,7 @@
     "--text-muted": "#9d174d",
     "--accent": "#ec4899",
     "--accent-glow": "rgba(236, 72, 153, 0.3)",
-    "--player-bg": "#f472b6",
+    "--player-bg": "rgba(244, 114, 182, 0.35)",
     "--border": "#fbcfe8",
     "--glass": "rgba(255, 255, 255, 0.4)",
     "--radius-lg": "32px",

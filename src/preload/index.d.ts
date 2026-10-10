@@ -101,9 +101,16 @@ declare global {
       getAppPaths: () => Promise<any>;
       exportSettings: () => Promise<any>;
       importSettings: () => Promise<any>;
-      startServer: (port?: number) => Promise<void>;
-      stopServer: () => Promise<void>;
-      getServerStatus: () => Promise<{ isRunning: boolean, ip: string, port: number }>;
+      startServer: (port?: number) => Promise<any>;
+      stopServer: () => Promise<any>;
+      openExternal: (url: string) => Promise<void>;
+      getServerStatus: () => Promise<{
+        isRunning: boolean;
+        ip: string;
+        port: number;
+        connectedCount: number;
+        clients: Array<{ id: string; ip: string; device: string; lastSeen: number }>;
+      }>;
       getHiddenTracks: (folderId?: string | null) => Promise<TrackMetadata[]>;
       getHiddenFolders: () => Promise<HiddenFolder[]>;
       createHiddenFolder: (name: string) => Promise<HiddenFolder>;
@@ -128,6 +135,26 @@ declare global {
       getYtVideoInfo: (url: string) => Promise<{ success: boolean; data?: any; error?: string }>;
       convertYtMedia: (options: { url: string; format: 'mp3' | 'mp4'; customTitle?: string; customArtist?: string }) => Promise<{ success: boolean; track?: TrackMetadata; error?: string }>;
       onYtDlpProgress: (callback: (progress: YtProgress) => void) => () => void;
+      // M3U APIs
+      selectM3uFile: () => Promise<string[] | null>;
+      importM3uFile: (filePath: string) => Promise<number>;
+      importM3uUrl: (url: string) => Promise<number>;
+      getM3uChannels: () => Promise<any[]>;
+      toggleM3uFavorite: (id: string) => Promise<any>;
+      deleteM3uChannel: (id: string) => Promise<any>;
+      startM3uScan: () => Promise<{ total: number; validCount: number; removedCount: number; cancelled: boolean }>;
+      cancelM3uScan: () => Promise<boolean>;
+      isM3uScanInProgress: () => Promise<boolean>;
+      onM3uScanProgress: (callback: (progress: {
+        current: number;
+        total: number;
+        validCount: number;
+        removedCount: number;
+        currentChannelName: string;
+        status: 'checking' | 'ok' | 'removed';
+        isFinished: boolean;
+        wasCancelled: boolean;
+      }) => void) => () => void;
     }
   }
 }

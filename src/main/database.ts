@@ -351,10 +351,10 @@ export const dbOps = {
       INSERT INTO m3u_channels (id, name, url, group_title, logo_url, is_favorite)
       VALUES (@id, @name, @url, @group_title, @logo_url, @is_favorite)
       ON CONFLICT(id) DO UPDATE SET
-        name=excluded.name,
-        url=excluded.url,
-        group_title=excluded.group_title,
-        logo_url=excluded.logo_url
+        name = excluded.name,
+        url = excluded.url,
+        group_title = excluded.group_title,
+        logo_url = COALESCE(excluded.logo_url, m3u_channels.logo_url)
     `);
 
     const insertMany = db.transaction((items: DBM3uChannel[]) => {

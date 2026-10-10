@@ -228,6 +228,14 @@ let inputPluginUrl: HTMLInputElement | null
 let btnInstallPluginFile: HTMLElement | null
 let btnConfirmInstallPlugin: HTMLElement | null
 
+// M3U Elements
+let btnM3uChannels: HTMLElement | null
+let btnImportM3u: HTMLElement | null
+let m3uImportModal: HTMLElement | null
+let m3uUrlInput: HTMLInputElement | null
+let btnImportM3uFile: HTMLElement | null
+let btnImportM3uWeb: HTMLElement | null
+
 // Theme Switcher Element
 let themeSelector: HTMLSelectElement
 
@@ -462,6 +470,88 @@ async function init(): Promise<void> {
         btnConfirmInstallPlugin!.removeAttribute('disabled')
       }
     })
+
+    // M3U Modal & Navigation Elements
+    btnM3uChannels = document.getElementById('btn-m3u-channels')
+    btnImportM3u = document.getElementById('btn-import-m3u')
+    m3uImportModal = document.getElementById('m3u-import-modal')
+    m3uUrlInput = document.getElementById('m3u-url-input') as HTMLInputElement
+    btnImportM3uFile = document.getElementById('btn-import-m3u-file')
+    btnImportM3uWeb = document.getElementById('btn-confirm-import-m3u')
+
+    btnM3uChannels?.addEventListener('click', () => {
+      selectedTrackUuids.clear()
+      setActiveNav('btn-m3u-channels')
+      renderM3UView()
+    })
+
+    btnImportM3u?.addEventListener('click', () => {
+      modalContainer.classList.remove('hidden')
+      m3uImportModal?.classList.remove('hidden')
+      m3uUrlInput?.focus()
+    })
+
+    btnImportM3uFile?.addEventListener('click', async () => {
+      try {
+        const filePaths = await window.api.selectM3uFile()
+        if (filePaths && filePaths.length > 0) {
+          btnImportM3uFile!.innerHTML = "<i data-lucide='loader' class='spinner'></i> Importing..."
+          btnImportM3uFile!.setAttribute('disabled', 'true')
+          const count = await window.api.importM3uFile(filePaths[0])
+          closeModal()
+          if (count > 0) {
+            alert(`Successfully imported ${count} channel${count === 1 ? '' : 's'}.`)
+          } else {
+            alert('No valid channels found in the selected M3U file.')
+          }
+          if (document.getElementById('m3u-alphabet-filter')) renderM3UGrid()
+        }
+      } catch (e: any) {
+        console.error('Error importing M3U file:', e)
+        alert(`Error importing M3U file: ${e?.message || e}`)
+      } finally {
+        if (btnImportM3uFile) {
+          btnImportM3uFile.removeAttribute('disabled')
+          btnImportM3uFile.innerHTML = "<i data-lucide='folder'></i> Choose Local M3U File..."
+          if ((window as any).lucide) (window as any).lucide.createIcons()
+        }
+      }
+    })
+
+    btnImportM3uWeb?.addEventListener('click', async () => {
+      const url = m3uUrlInput?.value.trim()
+      if (!url) {
+        alert('Please enter a valid M3U Web URL')
+        return
+      }
+      btnImportM3uWeb!.textContent = 'Importing...'
+      btnImportM3uWeb!.setAttribute('disabled', 'true')
+      try {
+        const count = await window.api.importM3uUrl(url)
+        closeModal()
+        if (count > 0) {
+          alert(`Successfully imported ${count} channel${count === 1 ? '' : 's'}.`)
+        } else {
+          alert('No valid channels found at the provided URL.')
+        }
+        if (document.getElementById('m3u-alphabet-filter')) renderM3UGrid()
+      } catch (e: any) {
+        console.error('Error importing M3U from URL:', e)
+        alert(`Error importing M3U: ${e?.message || e}`)
+      } finally {
+        if (btnImportM3uWeb) {
+          btnImportM3uWeb.removeAttribute('disabled')
+          btnImportM3uWeb.textContent = 'Import from Web'
+        }
+      }
+    })
+
+    m3uUrlInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        btnImportM3uWeb?.click()
+      }
+    })
+
     btnRadio = document.getElementById('btn-radio')!
     radioModal = document.getElementById('radio-modal')!
     inputRadioName = document.getElementById('radio-name') as HTMLInputElement
@@ -570,6 +660,7 @@ async function setupThemes(): Promise<void> {
 
 function applyTheme(theme: Theme): void {
   const root = document.documentElement
+  root.removeAttribute('style')
   Object.entries(theme.variables).forEach(([key, value]) => {
     root.style.setProperty(key, value)
   })
@@ -656,6 +747,8 @@ function closeModal(): void {
   radioModal.classList.add('hidden')
   pluginInstallModal?.classList.add('hidden')
   if (inputPluginUrl) inputPluginUrl.value = ''
+  m3uImportModal?.classList.add('hidden')
+  if (m3uUrlInput) m3uUrlInput.value = ''
   
   inputPlaylistName.value = ''
   if (inputQuickPlaylistName) inputQuickPlaylistName.value = ''
@@ -934,6 +1027,9 @@ function setActiveNav(target: string | HTMLElement): void {
     element.classList.add('active')
     if (element.id !== 'btn-hidden-files') {
       isVaultUnlocked = false
+    }
+    if (element.id !== 'btn-m3u-channels' && isM3uMode) {
+      closeM3uInlinePlayer()
     }
   }
 }
@@ -3796,6 +3892,23 @@ function playTrack(index: number, resumePosition?: number): void {
 }
 
 function togglePlay(): void {
+  const m3uVideo = document.getElementById('m3u-inline-video') as HTMLVideoElement | null
+  if (isM3uMode && m3uVideo) {
+    if (m3uVideo.paused) {
+      m3uVideo.play().then(() => {
+        btnPlayPause.innerHTML = '<i data-lucide="pause"></i>'
+        btnPlayPause.classList.add('is-playing')
+        if ((window as any).lucide) (window as any).lucide.createIcons()
+      }).catch(err => console.error('IPTV Play error:', err))
+    } else {
+      m3uVideo.pause()
+      btnPlayPause.innerHTML = '<i data-lucide="play"></i>'
+      btnPlayPause.classList.remove('is-playing')
+      if ((window as any).lucide) (window as any).lucide.createIcons()
+    }
+    return
+  }
+
   const isVideo = !videoOverlay.classList.contains('hidden')
   const currentPlayer = isVideo ? videoPlayer : audio
 
@@ -4106,6 +4219,8 @@ async function loadSession(): Promise<void> {
           if (status.isRunning) {
             indicator.style.display = 'flex'
             indicator.classList.remove('hidden')
+            const count = status.connectedCount || 0
+            indicator.innerHTML = `<span style="width:8px; height:8px; border-radius:50%; background:#10b981; display:inline-block; box-shadow:0 0 8px #10b981;"></span> Server Online (${count} ${count === 1 ? 'conectado' : 'conectados'})`
           } else {
             indicator.style.display = 'none'
             indicator.classList.add('hidden')
@@ -4460,51 +4575,207 @@ function showRadioToast(message: string): void {
 ;(window as any).showRadioToast = showRadioToast
 ;(window as any).renderRadioStreaming = renderRadioStreaming
 
+let serverScreenPollTimer: any = null
+
 async function renderServerScreen(): Promise<void> {
   lastListViewTitle = 'Local Server'
-  
+  if (serverScreenPollTimer) {
+    clearInterval(serverScreenPollTimer)
+    serverScreenPollTimer = null
+  }
+
   const status = await (window as any).api.getServerStatus()
-  
+  let iptvChannelsCount = 0
+  let libraryTracksCount = 0
+  let photosCount = 0
+  try {
+    const channels = await (window as any).api.getM3uChannels()
+    iptvChannelsCount = Array.isArray(channels) ? channels.length : 0
+  } catch (e) {}
+  try {
+    const lib = await (window as any).api.getLibrary()
+    if (Array.isArray(lib)) {
+      const photos = lib.filter(isPhotoTrack)
+      photosCount = photos.length
+      libraryTracksCount = lib.length - photosCount
+    }
+  } catch (e) {}
+
+  function renderClientsHtml(clients: any[] = []): string {
+    if (!clients || clients.length === 0) {
+      return `
+        <div style="text-align: center; padding: 28px 16px; color: var(--text-muted); font-size: 14px; background: rgba(0,0,0,0.2); border-radius: var(--radius-md); border: 1px dashed var(--border);">
+          <i data-lucide="radio" style="width: 24px; height: 24px; margin-bottom: 8px; opacity: 0.5; display: block; margin-left: auto; margin-right: auto;"></i>
+          Nenhum dispositivo conectado no momento.<br>
+          <span style="font-size: 12px; color: #64748b;">Abra a URL na Smart TV, celular ou app IPTV para conectar.</span>
+        </div>
+      `
+    }
+    return `
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        ${clients.map(c => `
+          <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); padding: 12px 16px; border-radius: var(--radius-md);">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <div style="width: 36px; height: 36px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); display: flex; align-items: center; justify-content: center; color: #3b82f6;">
+                <i data-lucide="${c.device && c.device.includes('TV') ? 'tv' : c.device && (c.device.includes('iPhone') || c.device.includes('Android')) ? 'smartphone' : 'laptop'}"></i>
+              </div>
+              <div>
+                <div style="font-weight: 600; font-size: 14px; color: var(--text-main);">${c.device || 'Dispositivo'}</div>
+                <div style="font-size: 12px; color: var(--text-muted); font-family: monospace;">IP: ${c.ip}</div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #10b981; font-weight: 600;">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 6px #10b981;"></span>
+              Ativo
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `
+  }
+
   contentView.innerHTML = `
-    <div style="padding: 32px; max-width: 800px; margin: 0 auto;">
-      <h1 style="font-size: 32px; margin-bottom: 8px;">Local Server</h1>
-      <p style="color: var(--text-muted); margin-bottom: 32px;">
-        Share your music library over your local network. Turn on the server and access your library from any phone or computer connected to the same Wi-Fi.
-      </p>
+    <div style="padding: 32px; max-width: 900px; margin: 0 auto;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+        <div>
+          <h1 style="font-size: 30px; font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
+            Servidor BlackBird & IPTV
+            <span style="font-size: 12px; background: rgba(59,130,246,0.15); color: #3b82f6; border: 1px solid rgba(59,130,246,0.3); padding: 2px 8px; border-radius: 6px; font-weight: 700;">TV EDITION</span>
+          </h1>
+          <p style="color: var(--text-muted); font-size: 14px;">
+            Transmita seus canais IPTV e biblioteca de mídia diretamente para a sua Smart TV, TV Box, celular ou computador na mesma rede Wi-Fi.
+          </p>
+        </div>
+      </div>
       
-      <div style="background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 32px; display: flex; flex-direction: column; gap: 24px;">
+      <!-- Main Status Card -->
+      <div style="background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 20px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
-            <h3 style="font-size: 18px; margin-bottom: 4px;">Server Status</h3>
-            <p style="color: var(--text-muted); font-size: 14px;" id="server-status-text">
-              ${status.isRunning ? 'Server is currently running.' : 'Server is stopped.'}
-            </p>
+            <div style="font-size: 12px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 4px;">Status do Servidor</div>
+            <div id="server-status-pill" style="font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+              ${status.isRunning 
+                ? '<span style="color: #10b981; display: flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; box-shadow: 0 0 10px #10b981;"></span> Online na rede local</span>'
+                : '<span style="color: var(--text-muted); display: flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: #64748b;"></span> Servidor desligado</span>'}
+              <span style="font-size: 13px; color: var(--text-muted); font-weight: 400;">(Porta: ${status.port || 3000})</span>
+            </div>
           </div>
-          <button id="btn-toggle-server" style="background: ${status.isRunning ? 'var(--accent)' : 'transparent'}; color: ${status.isRunning ? '#fff' : 'var(--text-main)'}; border: 1px solid ${status.isRunning ? 'var(--accent)' : 'var(--border)'}; padding: 8px 16px; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s;">
+          <button id="btn-toggle-server" style="background: ${status.isRunning ? 'rgba(239, 68, 68, 0.15)' : 'var(--accent)'}; color: ${status.isRunning ? '#f87171' : '#fff'}; border: 1px solid ${status.isRunning ? 'rgba(239, 68, 68, 0.3)' : 'var(--accent)'}; padding: 10px 20px; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s;">
             <i data-lucide="${status.isRunning ? 'power-off' : 'power'}"></i>
-            ${status.isRunning ? 'Stop Server' : 'Start Server'}
+            ${status.isRunning ? 'Parar Servidor' : 'Iniciar Servidor'}
           </button>
         </div>
 
-        <div id="server-details" style="display: ${status.isRunning ? 'block' : 'none'}; padding-top: 24px; border-top: 1px solid var(--border);">
-          <h3 style="font-size: 16px; margin-bottom: 12px; color: var(--text-muted);">Access Address</h3>
-          <div style="display: flex; gap: 12px; align-items: center;">
-            <input type="text" readonly value="http://${status.ip}:${status.port}" style="flex: 1; background: var(--bg-dark); border: 1px solid var(--border); padding: 12px; border-radius: var(--radius-md); color: var(--text-main); font-family: monospace; font-size: 16px;">
-            <button id="btn-copy-address" style="background: var(--glass); border: 1px solid var(--border); color: var(--text-main); padding: 12px 24px; border-radius: var(--radius-md); cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-              <i data-lucide="copy"></i> Copy
-            </button>
+        <!-- Metrics Row -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);">
+          <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="users" style="width: 14px; height: 14px; color: #3b82f6;"></i> Usuários Conectados
+            </div>
+            <div id="stat-connected-count" style="font-size: 22px; font-weight: 700; color: #3b82f6;">
+              ${status.connectedCount || 0}
+            </div>
+          </div>
+          <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="tv" style="width: 14px; height: 14px; color: #10b981;"></i> Canais IPTV
+            </div>
+            <div style="font-size: 22px; font-weight: 700; color: #10b981;">
+              ${iptvChannelsCount}
+            </div>
+          </div>
+          <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="music" style="width: 14px; height: 14px; color: #8b5cf6;"></i> Músicas na Rede
+            </div>
+            <div style="font-size: 22px; font-weight: 700; color: #8b5cf6;">
+              ${libraryTracksCount}
+            </div>
+          </div>
+          <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="image" style="width: 14px; height: 14px; color: #f59e0b;"></i> Fotos na Rede
+            </div>
+            <div style="font-size: 22px; font-weight: 700; color: #f59e0b;">
+              ${photosCount}
+            </div>
           </div>
         </div>
       </div>
+
+      <!-- Server Access Details (When Online) -->
+      <div id="server-details" style="display: ${status.isRunning ? 'flex' : 'none'}; flex-direction: column; gap: 20px; margin-bottom: 24px;">
+        
+        <!-- IPTV Playlist Card -->
+        <div style="background: var(--glass); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: var(--radius-lg); padding: 24px; position: relative;">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(59, 130, 246, 0.2); display: flex; align-items: center; justify-content: center; color: #38bdf8;">
+              <i data-lucide="tv"></i>
+            </div>
+            <div>
+              <h3 style="font-size: 16px; font-weight: 700; color: #fff;">Playlist IPTV para Smart TV (M3U)</h3>
+              <p style="color: var(--text-muted); font-size: 13px;">Adicione esta URL no TiviMate, IPTV Smarters, Smart IPTV, SS IPTV, Kodi ou VLC:</p>
+            </div>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center; margin-top: 12px;">
+            <input type="text" id="input-m3u-url" readonly value="http://${status.ip}:${status.port}/iptv.m3u" style="flex: 1; background: var(--bg-dark); border: 1px solid var(--border); padding: 12px 14px; border-radius: var(--radius-md); color: #38bdf8; font-family: monospace; font-size: 15px;">
+            <button id="btn-copy-m3u" style="background: var(--accent); border: 1px solid var(--accent); color: #fff; padding: 12px 20px; border-radius: var(--radius-md); cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; white-space: nowrap;">
+              <i data-lucide="copy"></i> Copiar URL M3U
+            </button>
+          </div>
+        </div>
+
+        <!-- Web Interface Card -->
+        <div style="background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px;">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+            <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(139, 92, 246, 0.2); display: flex; align-items: center; justify-content: center; color: #a78bfa;">
+              <i data-lucide="globe"></i>
+            </div>
+            <div>
+              <h3 style="font-size: 16px; font-weight: 700; color: #fff;">Interface Web Simplificada para Smart TV</h3>
+              <p style="color: var(--text-muted); font-size: 13px;">Acesse pelo navegador da sua Smart TV (Samsung, LG, Android TV) ou celular:</p>
+            </div>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center; margin-top: 12px;">
+            <input type="text" id="input-web-url" readonly value="http://${status.ip}:${status.port}" style="flex: 1; background: var(--bg-dark); border: 1px solid var(--border); padding: 12px 14px; border-radius: var(--radius-md); color: var(--text-main); font-family: monospace; font-size: 15px;">
+            <button id="btn-copy-web" style="background: var(--glass); border: 1px solid var(--border); color: var(--text-main); padding: 12px 18px; border-radius: var(--radius-md); cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; white-space: nowrap;">
+              <i data-lucide="copy"></i> Copiar Link
+            </button>
+            <button id="btn-open-browser" style="background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border); color: var(--text-main); padding: 12px 18px; border-radius: var(--radius-md); cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; white-space: nowrap;">
+              <i data-lucide="external-link"></i> Abrir no Navegador
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Real-time Connected Devices List -->
+      <div id="connected-devices-card" style="background: var(--glass); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; display: ${status.isRunning ? 'block' : 'none'};">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 style="font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+            <i data-lucide="activity" style="color: #3b82f6;"></i> Dispositivos Conectados em Tempo Real
+          </h3>
+          <span id="connected-badge" style="font-size: 12px; background: rgba(16, 185, 129, 0.15); color: #34d399; padding: 2px 10px; border-radius: 12px; font-weight: 600;">
+            ${status.connectedCount || 0} ativo(s)
+          </span>
+        </div>
+        <div id="server-clients-list">
+          ${renderClientsHtml(status.clients)}
+        </div>
+      </div>
+
     </div>
   `
 
   if ((window as any).lucide) (window as any).lucide.createIcons()
 
   const btnToggle = document.getElementById('btn-toggle-server')!
-  const btnCopy = document.getElementById('btn-copy-address')
+  const btnCopyM3u = document.getElementById('btn-copy-m3u')
+  const btnCopyWeb = document.getElementById('btn-copy-web')
+  const btnOpenBrowser = document.getElementById('btn-open-browser')
   const details = document.getElementById('server-details')!
-  const statusText = document.getElementById('server-status-text')!
+  const connectedCard = document.getElementById('connected-devices-card')!
+  const statusPill = document.getElementById('server-status-pill')!
 
   let isRunning = status.isRunning
 
@@ -4516,37 +4787,72 @@ async function renderServerScreen(): Promise<void> {
       const res = await (window as any).api.startServer(3000)
       isRunning = res.isRunning
       if (isRunning) {
-        const input = details.querySelector('input')
-        if (input) input.value = `http://${res.ip}:${res.port}`
+        const inputM3u = document.getElementById('input-m3u-url') as HTMLInputElement
+        const inputWeb = document.getElementById('input-web-url') as HTMLInputElement
+        if (inputM3u) inputM3u.value = `http://${res.ip}:${res.port}/iptv.m3u`
+        if (inputWeb) inputWeb.value = `http://${res.ip}:${res.port}`
       }
     }
     
     // Update UI directly
-    statusText.textContent = isRunning ? 'Server is currently running.' : 'Server is stopped.'
-    btnToggle.innerHTML = `<i data-lucide="${isRunning ? 'power-off' : 'power'}"></i> ${isRunning ? 'Stop Server' : 'Start Server'}`
-    btnToggle.style.background = isRunning ? 'var(--accent)' : 'transparent'
-    btnToggle.style.color = isRunning ? '#fff' : 'var(--text-main)'
-    btnToggle.style.borderColor = isRunning ? 'var(--accent)' : 'var(--border)'
-    details.style.display = isRunning ? 'block' : 'none'
+    statusPill.innerHTML = isRunning 
+      ? '<span style="color: #10b981; display: flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; box-shadow: 0 0 10px #10b981;"></span> Online na rede local</span>'
+      : '<span style="color: var(--text-muted); display: flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: #64748b;"></span> Servidor desligado</span>'
+    btnToggle.innerHTML = `<i data-lucide="${isRunning ? 'power-off' : 'power'}"></i> ${isRunning ? 'Parar Servidor' : 'Iniciar Servidor'}`
+    btnToggle.style.background = isRunning ? 'rgba(239, 68, 68, 0.15)' : 'var(--accent)'
+    btnToggle.style.color = isRunning ? '#f87171' : '#fff'
+    btnToggle.style.borderColor = isRunning ? 'rgba(239, 68, 68, 0.3)' : 'var(--accent)'
+    details.style.display = isRunning ? 'flex' : 'none'
+    connectedCard.style.display = isRunning ? 'block' : 'none'
     
     if ((window as any).lucide) (window as any).lucide.createIcons()
   })
 
-  if (btnCopy) {
-    btnCopy.addEventListener('click', () => {
-      const input = details.querySelector('input')
-      if (input) {
-        navigator.clipboard.writeText(input.value)
-        const origHtml = btnCopy.innerHTML
-        btnCopy.innerHTML = '<i data-lucide="check"></i> Copied!'
+  function handleCopy(inputId: string, button: HTMLElement) {
+    const input = document.getElementById(inputId) as HTMLInputElement
+    if (input) {
+      navigator.clipboard.writeText(input.value)
+      const orig = button.innerHTML
+      button.innerHTML = '<i data-lucide="check"></i> Copiado!'
+      if ((window as any).lucide) (window as any).lucide.createIcons()
+      setTimeout(() => {
+        button.innerHTML = orig
         if ((window as any).lucide) (window as any).lucide.createIcons()
-        setTimeout(() => {
-          btnCopy.innerHTML = origHtml
-          if ((window as any).lucide) (window as any).lucide.createIcons()
-        }, 2000)
+      }, 2000)
+    }
+  }
+
+  if (btnCopyM3u) btnCopyM3u.addEventListener('click', () => handleCopy('input-m3u-url', btnCopyM3u))
+  if (btnCopyWeb) btnCopyWeb.addEventListener('click', () => handleCopy('input-web-url', btnCopyWeb))
+  if (btnOpenBrowser) {
+    btnOpenBrowser.addEventListener('click', () => {
+      const input = document.getElementById('input-web-url') as HTMLInputElement
+      if (input && (window as any).api.openExternal) {
+        (window as any).api.openExternal(input.value)
       }
     })
   }
+
+  // Real-time poller for connected clients and status while on Server Screen
+  serverScreenPollTimer = setInterval(async () => {
+    if (lastListViewTitle !== 'Local Server') {
+      clearInterval(serverScreenPollTimer)
+      serverScreenPollTimer = null
+      return
+    }
+    try {
+      const liveStatus = await (window as any).api.getServerStatus()
+      const countEl = document.getElementById('stat-connected-count')
+      const badgeEl = document.getElementById('connected-badge')
+      const listEl = document.getElementById('server-clients-list')
+      if (countEl) countEl.textContent = String(liveStatus.connectedCount || 0)
+      if (badgeEl) badgeEl.textContent = `${liveStatus.connectedCount || 0} ativo(s)`
+      if (listEl) {
+        listEl.innerHTML = renderClientsHtml(liveStatus.clients)
+        if ((window as any).lucide) (window as any).lucide.createIcons()
+      }
+    } catch (e) {}
+  }, 2000)
 }
 
 function renderAboutScreen(): void {
@@ -4960,81 +5266,223 @@ async function openPluginView(plugin: PluginInfo): Promise<void> {
 // M3U Logic
 let m3uChannelsCache: any[] = [];
 let currentM3uFilter = '';
+let currentM3uChannelData: any = null;
+let isM3uScanActive = false;
 
 function renderM3UView() {
-  contentView.innerHTML = `<div style="display: flex; flex-direction: column; height: 100%;">
-    <div class="alphabet-filter" id="m3u-alphabet-filter"></div>
-    <div class="media-grid" id="m3u-grid" style="padding: 16px; overflow-y: auto; flex: 1;"></div>
-  </div>`;
-  
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-  const filterContainer = document.getElementById('m3u-alphabet-filter')!;
-  
-  const allBtn = document.createElement('button');
-  allBtn.className = 'alphabet-btn' + (currentM3uFilter === '' ? ' active' : '');
-  allBtn.textContent = 'All';
-  allBtn.style.width = '40px';
-  allBtn.onclick = () => { currentM3uFilter = ''; renderM3UView(); };
-  filterContainer.appendChild(allBtn);
-  
-  const favBtn = document.createElement('button');
-  favBtn.className = 'alphabet-btn' + (currentM3uFilter === 'FAV' ? ' active' : '');
-  favBtn.innerHTML = '<i data-lucide="heart" style="width: 14px; height: 14px;"></i>';
-  favBtn.onclick = () => { currentM3uFilter = 'FAV'; renderM3UView(); };
-  filterContainer.appendChild(favBtn);
-  
-  alphabet.forEach(letter => {
-    const btn = document.createElement('button');
-    btn.className = 'alphabet-btn' + (currentM3uFilter === letter ? ' active' : '');
-    btn.textContent = letter;
-    btn.onclick = () => { currentM3uFilter = letter; renderM3UView(); };
-    filterContainer.appendChild(btn);
-  });
-  
-  lucide.createIcons();
-  
+  contentView.innerHTML = `
+    <div class="m3u-view-wrapper">
+      <!-- Toolbar Superior: Filtro Alfabético + Contador + Auto Scan -->
+      <div class="m3u-toolbar">
+        <div class="m3u-toolbar-left" id="m3u-alphabet-filter"></div>
+        <div class="m3u-toolbar-right">
+          <span class="m3u-channel-counter" id="m3u-channel-count">Carregando canais...</span>
+          <button class="btn-m3u-scan" id="btn-m3u-auto-scan" title="Varrer e remover automaticamente os canais offline">
+            <i data-lucide="radar"></i> Auto Scan
+          </button>
+        </div>
+      </div>
+
+      <!-- Banner de Progresso do Auto Scan -->
+      <div id="m3u-scan-banner" class="m3u-scan-banner hidden">
+        <div class="m3u-scan-banner-header">
+          <div class="m3u-scan-status-title">
+            <span class="m3u-scan-pulse"></span>
+            <span id="m3u-scan-status-text">Varredura automática em andamento...</span>
+          </div>
+          <button class="btn-danger" id="btn-m3u-cancel-scan" style="padding: 4px 12px; font-size: 12px;">Cancelar</button>
+        </div>
+        <div class="m3u-progress-bar-bg">
+          <div class="m3u-progress-bar-fill" id="m3u-scan-progress-bar"></div>
+        </div>
+        <div class="m3u-scan-stats">
+          <span class="m3u-scan-badge neutral" id="m3u-scan-stat-total">Total: 0</span>
+          <span class="m3u-scan-badge neutral" id="m3u-scan-stat-checked">Verificados: 0</span>
+          <span class="m3u-scan-badge online" id="m3u-scan-stat-online"><i data-lucide="check-circle" style="width: 12px; height: 12px;"></i> Funcionando: 0</span>
+          <span class="m3u-scan-badge offline" id="m3u-scan-stat-removed"><i data-lucide="trash-2" style="width: 12px; height: 12px;"></i> Removidos: 0</span>
+        </div>
+      </div>
+
+      <!-- Área Demarcada: Player de IPTV -->
+      <div id="m3u-player-section" class="m3u-player-section hidden">
+        <div class="m3u-player-header">
+          <div class="m3u-player-meta">
+            <div class="m3u-live-tag"><span class="live-dot"></span> AO VIVO</div>
+            <div class="m3u-player-info">
+              <span class="m3u-player-title" id="m3u-player-title">Canal</span>
+              <span class="m3u-player-category" id="m3u-player-category">IPTV</span>
+            </div>
+          </div>
+          <div class="m3u-player-controls">
+            <button id="btn-m3u-pip" title="Picture in Picture"><i data-lucide="picture-in-picture"></i></button>
+            <button id="btn-m3u-fullscreen" title="Tela Cheia"><i data-lucide="maximize"></i></button>
+            <button id="btn-m3u-close" title="Fechar Player"><i data-lucide="x"></i></button>
+          </div>
+        </div>
+        <div class="m3u-video-container">
+          <video id="m3u-inline-video" class="m3u-video-element" controls playsinline autoplay></video>
+          <div id="m3u-video-loading" class="m3u-video-loading hidden">
+            <i data-lucide="loader" class="spinner" style="width: 28px; height: 28px;"></i>
+            <span>Conectando ao canal...</span>
+          </div>
+          <div id="m3u-video-error" class="m3u-video-error hidden">
+            <i data-lucide="alert-triangle" style="width: 32px; height: 32px;"></i>
+            <span style="font-weight: 600;">Canal indisponível no momento</span>
+            <button class="btn-primary" id="btn-m3u-retry" style="padding: 6px 14px; font-size: 12px; margin-top: 6px;">Tentar novamente</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lista de Canais -->
+      <div class="m3u-list-header">
+        <span>Lista de Canais</span>
+      </div>
+      <div class="m3u-content-scroll">
+        <div class="m3u-list" id="m3u-grid"></div>
+      </div>
+    </div>
+  `;
+
+  // Construir botões de filtro de letras (sem reconstruir a página a cada clique)
+  const filterContainer = document.getElementById('m3u-alphabet-filter');
+  if (filterContainer) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+    const allBtn = document.createElement('button');
+    allBtn.className = 'alphabet-btn' + (currentM3uFilter === '' ? ' active' : '');
+    allBtn.textContent = 'All';
+    allBtn.style.width = '40px';
+    allBtn.onclick = () => {
+      currentM3uFilter = '';
+      updateM3uFilterButtons(filterContainer);
+      renderM3UGrid();
+    };
+    filterContainer.appendChild(allBtn);
+
+    const favBtn = document.createElement('button');
+    favBtn.className = 'alphabet-btn' + (currentM3uFilter === 'FAV' ? ' active' : '');
+    favBtn.innerHTML = '<i data-lucide="heart" style="width: 14px; height: 14px;"></i>';
+    favBtn.onclick = () => {
+      currentM3uFilter = 'FAV';
+      updateM3uFilterButtons(filterContainer);
+      renderM3UGrid();
+    };
+    filterContainer.appendChild(favBtn);
+
+    alphabet.forEach(letter => {
+      const btn = document.createElement('button');
+      btn.className = 'alphabet-btn' + (currentM3uFilter === letter ? ' active' : '');
+      btn.textContent = letter;
+      btn.onclick = () => {
+        currentM3uFilter = letter;
+        updateM3uFilterButtons(filterContainer);
+        renderM3UGrid();
+      };
+      filterContainer.appendChild(btn);
+    });
+  }
+
+  // Listener do botão Auto Scan e Cancelar Scan
+  document.getElementById('btn-m3u-auto-scan')?.addEventListener('click', handleAutoScanM3u);
+  document.getElementById('btn-m3u-cancel-scan')?.addEventListener('click', handleCancelAutoScanM3u);
+
+  // Se já tiver canal tocando anteriormente, reabrir e continuar
+  if (currentM3uChannelData) {
+    const playerSection = document.getElementById('m3u-player-section');
+    if (playerSection) playerSection.classList.remove('hidden');
+    playM3uChannel(currentM3uChannelData, currentM3uIndex);
+  }
+
+  if ((window as any).lucide) (window as any).lucide.createIcons();
+
   renderM3UGrid();
+}
+
+function updateM3uFilterButtons(container: HTMLElement) {
+  container.querySelectorAll('.alphabet-btn').forEach((btn) => {
+    const text = btn.textContent?.trim();
+    const hasHeart = btn.querySelector('[data-lucide="heart"]');
+    if (currentM3uFilter === '' && text === 'All') {
+      btn.classList.add('active');
+    } else if (currentM3uFilter === 'FAV' && hasHeart) {
+      btn.classList.add('active');
+    } else if (text === currentM3uFilter) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
 }
 
 async function renderM3UGrid() {
   const grid = document.getElementById('m3u-grid');
-  if(!grid) return;
-  grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted);"><i data-lucide="loader" class="spinner"></i></div>';
-  lucide.createIcons();
-  
+  const countLabel = document.getElementById('m3u-channel-count');
+  if (!grid) return;
+  grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 40px;"><i data-lucide="loader" class="spinner"></i></div>';
+  if ((window as any).lucide) (window as any).lucide.createIcons();
+
   try {
     m3uChannelsCache = await (window as any).api.getM3uChannels();
     grid.innerHTML = '';
-    
+
+    if (countLabel) {
+      countLabel.textContent = `${m3uChannelsCache.length} canal${m3uChannelsCache.length === 1 ? '' : 'is'}`;
+    }
+
     const filtered = m3uChannelsCache.filter(ch => {
       if (currentM3uFilter === '') return true;
       if (currentM3uFilter === 'FAV') return ch.is_favorite === 1;
-      return ch.name.toUpperCase().startsWith(currentM3uFilter);
+      return (ch.name || '').toUpperCase().startsWith(currentM3uFilter);
     });
-    
-    if(filtered.length === 0) {
-      grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted);">No channels found.</div>';
+
+    if (filtered.length === 0) {
+      if (m3uChannelsCache.length === 0) {
+        grid.innerHTML = `
+          <div style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; text-align: center;">
+            <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(56, 189, 248, 0.1); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; color: var(--accent, #38bdf8);">
+              <i data-lucide="tv" style="width: 32px; height: 32px;"></i>
+            </div>
+            <h3 style="font-size: 18px; font-weight: 600; color: var(--text-main, #fff); margin-bottom: 8px;">Nenhum Canal IPTV</h3>
+            <p style="color: var(--text-muted, #94a3b8); font-size: 14px; max-width: 420px; margin-bottom: 24px;">
+              Importe uma lista M3U ou M3U8 através de uma URL web ou selecione um arquivo local para assistir a canais IPTV.
+            </p>
+            <button class="btn-primary" id="btn-empty-import-m3u" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: var(--radius-md); font-weight: 600; cursor: pointer;">
+              <i data-lucide="list-video"></i> Importar Lista M3U
+            </button>
+          </div>
+        `;
+        document.getElementById('btn-empty-import-m3u')?.addEventListener('click', () => {
+          modalContainer.classList.remove('hidden');
+          m3uImportModal?.classList.remove('hidden');
+          m3uUrlInput?.focus();
+        });
+        if ((window as any).lucide) (window as any).lucide.createIcons();
+        return;
+      }
+      grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 40px;">Nenhum canal encontrado para este filtro.</div>';
       return;
     }
+
     grid.className = 'm3u-list';
     currentM3uList = filtered;
-    
+
     filtered.forEach((ch, index) => {
+      const isCurrentlyPlaying = currentM3uChannelData && currentM3uChannelData.id === ch.id;
       const card = document.createElement('div');
-      card.className = `m3u-list-item ${isM3uMode && currentM3uIndex === index ? 'playing' : ''}`;
+      card.className = `m3u-list-item ${isCurrentlyPlaying ? 'playing' : ''}`;
       card.innerHTML = `
         <div class="m3u-logo-container">
           ${ch.logo_url ? `<img src="${ch.logo_url}" class="m3u-logo" onerror="this.style.display='none'">` : '<i data-lucide="tv" class="m3u-logo-placeholder"></i>'}
         </div>
         <div class="m3u-info">
           <div class="m3u-title" title="${ch.name}">${ch.name}</div>
-          <div class="m3u-category">${ch.group_title || 'Uncategorized'}</div>
+          <div class="m3u-category">${ch.group_title || 'Geral'}</div>
         </div>
         <div class="m3u-actions">
-          <button class="m3u-action-btn ${ch.is_favorite ? 'favorite-active' : ''}" title="Favorite" onclick="event.stopPropagation(); window.toggleM3uFav('${ch.id}')">
+          <button class="m3u-action-btn ${ch.is_favorite ? 'favorite-active' : ''}" title="Favorito" onclick="event.stopPropagation(); window.toggleM3uFav('${ch.id}')">
             <i data-lucide="heart" style="width: 14px; height: 14px;"></i>
           </button>
-          <button class="m3u-action-btn" title="Remove" onclick="event.stopPropagation(); window.deleteM3u('${ch.id}')">
+          <button class="m3u-action-btn" title="Remover" onclick="event.stopPropagation(); window.deleteM3u('${ch.id}')">
             <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
           </button>
         </div>
@@ -5042,10 +5490,10 @@ async function renderM3UGrid() {
       card.onclick = () => playM3uChannel(ch, index);
       grid.appendChild(card);
     });
-    
-    lucide.createIcons();
+
+    if ((window as any).lucide) (window as any).lucide.createIcons();
   } catch (e) {
-    grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted);">Error loading channels.</div>';
+    grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 40px;">Erro ao carregar canais.</div>';
   }
 }
 
@@ -5055,17 +5503,56 @@ async function renderM3UGrid() {
 };
 
 (window as any).deleteM3u = async (id: string) => {
+  if (currentM3uChannelData && currentM3uChannelData.id === id) {
+    closeM3uInlinePlayer();
+  }
   await (window as any).api.deleteM3uChannel(id);
   renderM3UGrid();
 };
 
-function playM3uChannel(ch: any, index: number = -1) {
+function closeM3uInlinePlayer(): void {
+  const inlinePlayerSection = document.getElementById('m3u-player-section');
+  const inlineVideo = document.getElementById('m3u-inline-video') as HTMLVideoElement | null;
+  if (inlineVideo) {
+    inlineVideo.pause();
+    inlineVideo.src = '';
+  }
+  if (currentHls) {
+    currentHls.destroy();
+    currentHls = null;
+  }
+  if (inlinePlayerSection) {
+    inlinePlayerSection.classList.add('hidden');
+  }
+  currentM3uChannelData = null;
+  currentM3uIndex = -1;
+  isM3uMode = false;
+
+  document.querySelectorAll('.m3u-list-item').forEach(item => item.classList.remove('playing'));
+  const btnPlayPause = document.getElementById('btn-play-pause');
+  if (btnPlayPause) {
+    btnPlayPause.innerHTML = '<i data-lucide="play"></i>';
+    btnPlayPause.classList.remove('is-playing');
+  }
+  if ((window as any).lucide) (window as any).lucide.createIcons();
+}
+
+function playM3uChannel(ch: any, index: number = -1): void {
   audio.pause();
   isM3uMode = true;
   isRadioMode = false;
   currentM3uIndex = index;
-  
-  // Update Player UI
+  currentM3uChannelData = ch;
+
+  // Esconder overlay flutuante do PIP antigo para não poluir a interface
+  if (videoOverlay) {
+    videoOverlay.classList.add('hidden');
+  }
+  if (videoPlayer) {
+    videoPlayer.pause();
+  }
+
+  // Atualizar barra inferior de reprodução
   playerTitle.textContent = ch.name || 'Unknown Channel';
   playerArtist.textContent = ch.group_title || 'IPTV';
   playerAlbum.textContent = '';
@@ -5079,106 +5566,219 @@ function playM3uChannel(ch: any, index: number = -1) {
     btnPlayPause.innerHTML = '<i data-lucide="pause"></i>';
     btnPlayPause.classList.add('is-playing');
   }
-  lucide.createIcons();
 
-  // Highlight selected channel in list
+  // Destacar canal ativo na lista
   document.querySelectorAll('.m3u-list-item').forEach((item, i) => {
     if (i === index) item.classList.add('playing');
     else item.classList.remove('playing');
   });
 
-  const videoOverlay = document.getElementById('video-overlay');
-  const videoPlayer = document.getElementById('video-player') as HTMLVideoElement;
-  if(videoOverlay && videoPlayer) {
-    videoOverlay.classList.remove('hidden');
-    
+  // Ativar Área Demarcada como Player de IPTV no topo
+  const playerSection = document.getElementById('m3u-player-section');
+  const inlineVideo = document.getElementById('m3u-inline-video') as HTMLVideoElement | null;
+  const playerTitleEl = document.getElementById('m3u-player-title');
+  const playerCatEl = document.getElementById('m3u-player-category');
+  const videoLoading = document.getElementById('m3u-video-loading');
+  const videoError = document.getElementById('m3u-video-error');
+
+  if (playerSection && inlineVideo) {
+    playerSection.classList.remove('hidden');
+    if (playerTitleEl) playerTitleEl.textContent = ch.name || 'Canal';
+    if (playerCatEl) playerCatEl.textContent = ch.group_title || 'IPTV';
+    if (videoError) videoError.classList.add('hidden');
+    if (videoLoading) videoLoading.classList.remove('hidden');
+
     if (currentHls) {
       currentHls.destroy();
       currentHls = null;
     }
-    
-    if((window as any).Hls && (window as any).Hls.isSupported()) {
-      currentHls = new (window as any).Hls();
+
+    const onPlaying = () => {
+      if (videoLoading) videoLoading.classList.add('hidden');
+      if (videoError) videoError.classList.add('hidden');
+    };
+    const onWaiting = () => {
+      if (videoLoading) videoLoading.classList.remove('hidden');
+    };
+    const onError = () => {
+      if (videoLoading) videoLoading.classList.add('hidden');
+      if (videoError) videoError.classList.remove('hidden');
+    };
+
+    inlineVideo.onplaying = onPlaying;
+    inlineVideo.onwaiting = onWaiting;
+    inlineVideo.onerror = onError;
+
+    if ((window as any).Hls && (window as any).Hls.isSupported()) {
+      currentHls = new (window as any).Hls({
+        enableWorker: true,
+        lowLatencyMode: true
+      });
       currentHls.loadSource(ch.url);
-      currentHls.attachMedia(videoPlayer);
-      currentHls.on((window as any).Hls.Events.MANIFEST_PARSED, () => videoPlayer.play());
-      currentHls.on((window as any).Hls.Events.ERROR, (event, data) => {
+      currentHls.attachMedia(inlineVideo);
+      currentHls.on((window as any).Hls.Events.MANIFEST_PARSED, () => {
+        inlineVideo.play().catch(e => console.warn('Autoplay error:', e));
+      });
+      currentHls.on((window as any).Hls.Events.ERROR, (_event: any, data: any) => {
         if (data.fatal) {
-          console.warn("HLS failed, falling back to native player", data);
+          console.warn('HLS fatal error, tentando fallback nativo:', data);
           currentHls.destroy();
           currentHls = null;
-          videoPlayer.src = ch.url;
-          videoPlayer.play().catch(e => console.error(e));
+          inlineVideo.src = ch.url;
+          inlineVideo.play().catch(() => onError());
         }
       });
     } else {
-      videoPlayer.src = ch.url;
-      videoPlayer.play().catch(e => console.error(e));
+      inlineVideo.src = ch.url;
+      inlineVideo.play().catch(() => onError());
     }
+
+    // Configurar botões de controle do player inline
+    const btnClose = document.getElementById('btn-m3u-close');
+    if (btnClose) {
+      btnClose.onclick = () => closeM3uInlinePlayer();
+    }
+    const btnFullscreen = document.getElementById('btn-m3u-fullscreen');
+    if (btnFullscreen) {
+      btnFullscreen.onclick = () => {
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(e => console.error(e));
+        } else {
+          inlineVideo.requestFullscreen().catch(e => console.error(e));
+        }
+      };
+    }
+    const btnPip = document.getElementById('btn-m3u-pip');
+    if (btnPip) {
+      btnPip.onclick = async () => {
+        try {
+          if (document.pictureInPictureElement) {
+            await document.exitPictureInPicture();
+          } else if (document.pictureInPictureEnabled) {
+            await inlineVideo.requestPictureInPicture();
+          }
+        } catch (e) {
+          console.error('PiP error:', e);
+        }
+      };
+    }
+    const btnRetry = document.getElementById('btn-m3u-retry');
+    if (btnRetry) {
+      btnRetry.onclick = () => playM3uChannel(ch, index);
+    }
+  }
+
+  if ((window as any).lucide) (window as any).lucide.createIcons();
+}
+
+async function handleAutoScanM3u(): Promise<void> {
+  if (isM3uScanActive) {
+    alert('Uma varredura de canais já está em andamento.');
+    return;
+  }
+  
+  const channels = await (window as any).api.getM3uChannels();
+  if (!channels || channels.length === 0) {
+    alert('Nenhum canal IPTV encontrado para escanear. Importe uma lista M3U primeiro.');
+    return;
+  }
+
+  const confirmScan = confirm(`Deseja iniciar o Auto Scan nos ${channels.length} canais?\n\nEsta funcionalidade testará a conexão de todos os canais e removerá automaticamente os que não estão funcionando.`);
+  if (!confirmScan) return;
+
+  const banner = document.getElementById('m3u-scan-banner');
+  const btnScan = document.getElementById('btn-m3u-auto-scan') as HTMLButtonElement | null;
+  const statusText = document.getElementById('m3u-scan-status-text');
+  const progressBar = document.getElementById('m3u-scan-progress-bar');
+  const statTotal = document.getElementById('m3u-scan-stat-total');
+  const statChecked = document.getElementById('m3u-scan-stat-checked');
+  const statOnline = document.getElementById('m3u-scan-stat-online');
+  const statRemoved = document.getElementById('m3u-scan-stat-removed');
+
+  if (banner) banner.classList.remove('hidden');
+  if (btnScan) {
+    btnScan.disabled = true;
+    btnScan.classList.add('scanning');
+    btnScan.innerHTML = '<i data-lucide="loader" class="spinner"></i> Varrendo...';
+    if ((window as any).lucide) (window as any).lucide.createIcons();
+  }
+
+  isM3uScanActive = true;
+
+  const removeListener = (window as any).api.onM3uScanProgress((prog: any) => {
+    if (statTotal) statTotal.textContent = `Total: ${prog.total}`;
+    if (statChecked) statChecked.textContent = `Verificados: ${prog.current} / ${prog.total}`;
+    if (statOnline) statOnline.innerHTML = `<i data-lucide="check-circle" style="width: 12px; height: 12px;"></i> Funcionando: ${prog.validCount}`;
+    if (statRemoved) statRemoved.innerHTML = `<i data-lucide="trash-2" style="width: 12px; height: 12px;"></i> Removidos: ${prog.removedCount}`;
+    
+    const pct = prog.total > 0 ? Math.round((prog.current / prog.total) * 100) : 0;
+    if (progressBar) progressBar.style.width = `${pct}%`;
+
+    if (statusText) {
+      if (prog.isFinished) {
+        if (prog.wasCancelled) {
+          statusText.textContent = `Varredura cancelada pelo usuário. (${prog.removedCount} removidos)`;
+        } else {
+          statusText.textContent = `Varredura concluída! ${prog.validCount} ativos mantidos, ${prog.removedCount} offline removidos.`;
+        }
+      } else {
+        statusText.textContent = `Verificando: ${prog.currentChannelName || 'Canal'} (${pct}%)`;
+      }
+    }
+
+    if ((window as any).lucide) (window as any).lucide.createIcons();
+
+    if (prog.isFinished) {
+      isM3uScanActive = false;
+      if (btnScan) {
+        btnScan.disabled = false;
+        btnScan.classList.remove('scanning');
+        btnScan.innerHTML = '<i data-lucide="radar"></i> Auto Scan';
+        if ((window as any).lucide) (window as any).lucide.createIcons();
+      }
+      removeListener();
+
+      // Recarrega a lista de canais
+      renderM3UGrid();
+
+      // Se o canal que estava tocando foi removido, fechar player inline
+      if (currentM3uChannelData) {
+        (window as any).api.getM3uChannels().then((updatedList: any[]) => {
+          const stillExists = updatedList.some(ch => ch.id === currentM3uChannelData.id);
+          if (!stillExists) {
+            closeM3uInlinePlayer();
+          }
+        });
+      }
+
+      // Oculta o banner após 5 segundos se concluído
+      setTimeout(() => {
+        if (!isM3uScanActive && banner) {
+          banner.classList.add('hidden');
+        }
+      }, 5000);
+    }
+  });
+
+  try {
+    await (window as any).api.startM3uScan();
+  } catch (err: any) {
+    console.error('Auto scan error:', err);
+    isM3uScanActive = false;
+    if (banner) banner.classList.add('hidden');
+    if (btnScan) {
+      btnScan.disabled = false;
+      btnScan.classList.remove('scanning');
+      btnScan.innerHTML = '<i data-lucide="radar"></i> Auto Scan';
+      if ((window as any).lucide) (window as any).lucide.createIcons();
+    }
+    removeListener();
+    alert(`Erro ao executar o Auto Scan: ${err?.message || err}`);
   }
 }
 
-setTimeout(() => {
-  const btnM3uChannels = document.getElementById('btn-m3u-channels');
-  const btnImportM3u = document.getElementById('btn-import-m3u');
-  const m3uImportModal = document.getElementById('m3u-import-modal');
-  const btnCloseM3uModal = m3uImportModal?.querySelector('.btn-close-modal');
-  const btnCancelM3uModal = m3uImportModal?.querySelector('.btn-cancel-modal');
-  const btnImportM3uWeb = document.getElementById('btn-confirm-import-m3u');
-  const btnImportM3uFile = document.getElementById('btn-import-m3u-file');
-  const m3uUrlInput = document.getElementById('m3u-url-input') as HTMLInputElement;
-
-  if (btnM3uChannels) {
-    btnM3uChannels.addEventListener('click', () => {
-      // Deactivate all nav items and activate this one
-      document.querySelectorAll('.sidebar-nav li').forEach(el => el.classList.remove('active'));
-      btnM3uChannels.classList.add('active');
-      renderM3UView();
-    });
-  }
-  
-  if (btnImportM3u && m3uImportModal) {
-    btnImportM3u.style.display = 'inline-flex';
-    btnImportM3u.addEventListener('click', () => {
-      m3uImportModal.classList.remove('hidden');
-    });
-    
-    const closeModal = () => m3uImportModal.classList.add('hidden');
-    btnCloseM3uModal?.addEventListener('click', closeModal);
-    btnCancelM3uModal?.addEventListener('click', closeModal);
-    
-    btnImportM3uWeb?.addEventListener('click', async () => {
-      const url = m3uUrlInput?.value.trim();
-      if(url) {
-        btnImportM3uWeb.textContent = "Importing...";
-        try {
-          const count = await (window as any).api.importM3uUrl(url);
-          closeModal();
-          alert(`Successfully imported ${count} channels.`);
-          if(document.getElementById('m3u-alphabet-filter')) renderM3UGrid();
-        } catch(e) {
-          console.error(e);
-          alert("Error importing M3U");
-        }
-        btnImportM3uWeb.textContent = "Import from Web";
-      }
-    });
-    
-    btnImportM3uFile?.addEventListener('click', async () => {
-      const filePaths = await (window as any).api.selectM3uFile();
-      if (filePaths && filePaths.length > 0) {
-        try {
-          const count = await (window as any).api.importM3uFile(filePaths[0]);
-          closeModal();
-          alert(`Successfully imported ${count} channels.`);
-          if(document.getElementById('m3u-alphabet-filter')) renderM3UGrid();
-        } catch(e) {
-          console.error(e);
-          alert("Error importing M3U file");
-        }
-        btnImportM3uFile.innerHTML = "<i data-lucide='folder'></i> Choose Local M3U File...";
-        lucide.createIcons();
-      }
-    });
-  }
-}, 1500);
+async function handleCancelAutoScanM3u(): Promise<void> {
+  await (window as any).api.cancelM3uScan();
+  const statusText = document.getElementById('m3u-scan-status-text');
+  if (statusText) statusText.textContent = 'Cancelando varredura...';
+}

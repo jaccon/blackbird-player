@@ -13,6 +13,7 @@ import icon from '../../resources/icon.png?asset'
 import { getMetadata, scanDirectory } from './metadata'
 import { dbOps } from './database'
 import { parseM3uFile, parseM3uUrl } from './m3u'
+import { startIptvScan, cancelIptvScan, isIptvScanInProgress } from './iptv-scanner'
 
 import { startServer, stopServer, getServerStatus } from './server'
 import { v4 as uuidv4 } from 'uuid'
@@ -464,18 +465,35 @@ app.whenReady().then(async () => {
 
   // M3U IPC Handlers
   ipcMain.handle('import-m3u-file', async (_, filePath: string) => {
-    const channels = await parseM3uFile(filePath);
-    dbOps.importM3UChannels(channels);
-    return channels.length;
+    try {
+      const channels = await parseM3uFile(filePath);
+      dbOps.importM3UChannels(channels);
+      return channels.length;
+    } catch (err: any) {
+      console.error('[M3U] Error importing file:', err);
+      throw err;
+    }
   });
   ipcMain.handle('import-m3u-url', async (_, url: string) => {
-    const channels = await parseM3uUrl(url);
-    dbOps.importM3UChannels(channels);
-    return channels.length;
+    try {
+      const channels = await parseM3uUrl(url);
+      dbOps.importM3UChannels(channels);
+      return channels.length;
+    } catch (err: any) {
+      console.error('[M3U] Error importing URL:', err);
+      throw err;
+    }
   });
   ipcMain.handle('get-m3u-channels', () => dbOps.getM3UChannels());
   ipcMain.handle('toggle-m3u-favorite', (_, id: string) => dbOps.toggleM3UFavorite(id));
   ipcMain.handle('delete-m3u-channel', (_, id: string) => dbOps.deleteM3UChannel(id));
+  ipcMain.handle('start-m3u-scan', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) throw new Error('No browser window found for IPC request');
+    return await startIptvScan(win);
+  });
+  ipcMain.handle('cancel-m3u-scan', () => cancelIptvScan());
+  ipcMain.handle('is-m3u-scan-in-progress', () => isIptvScanInProgress());
 
   ipcMain.handle('save-user-radio', (_, radio: any) => dbOps.saveUserRadio(radio))
   ipcMain.handle('get-user-radios', () => dbOps.getUserRadios())
@@ -556,6 +574,16 @@ app.whenReady().then(async () => {
   ipcMain.handle('get-server-status', () => getServerStatus())
   ipcMain.handle('start-server', (_, port?: number) => startServer(port))
   ipcMain.handle('stop-server', () => stopServer())
+  ipcMain.handle('open-external', (_, url: string) => {
+    if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+      shell.openExternal(url)
+    }
+  })
+  try {
+    startServer(3000)
+  } catch (e) {
+    console.error('Failed to start server on startup:', e)
+  }
   ipcMain.handle('reset-app-data', (_, options?: { clearCovers?: boolean }) => dbOps.resetAllData(options))
   
   ipcMain.handle('export-settings', async () => {

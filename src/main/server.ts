@@ -1,14 +1,69 @@
 import http from 'http';
+import https from 'https';
 import fs from 'fs';
 import path from 'path';
+import { URL } from 'url';
 import localIpUrl from 'local-ip-url';
 import { dbOps } from './database';
 import { getMetadata } from './metadata';
 import { app } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
+import { getTvWebHtml } from './tv-web';
 
 let server: http.Server | null = null;
 let currentPort = 3000;
+
+export interface ConnectedClient {
+  id: string;
+  ip: string;
+  device: string;
+  lastSeen: number;
+}
+
+const activeClients = new Map<string, ConnectedClient>();
+
+function cleanInactiveClients(): void {
+  const now = Date.now();
+  for (const [id, client] of activeClients.entries()) {
+    if (now - client.lastSeen > 15000) {
+      activeClients.delete(id);
+    }
+  }
+}
+
+function parseDeviceFromUserAgent(ua: string): string {
+  const s = (ua || '').toLowerCase();
+  if (s.includes('tizen')) return 'Samsung Smart TV (Tizen)';
+  if (s.includes('webos')) return 'LG Smart TV (webOS)';
+  if (s.includes('android tv') || s.includes('googletv')) return 'Android TV';
+  if (s.includes('appletv')) return 'Apple TV';
+  if (s.includes('roku')) return 'Roku TV';
+  if (s.includes('smart-tv') || s.includes('smarttv') || s.includes('crkey') || s.includes('hbbtv')) return 'Smart TV';
+  if (s.includes('tivimate')) return 'TiviMate IPTV Player';
+  if (s.includes('vlc')) return 'VLC Media Player';
+  if (s.includes('kodi')) return 'Kodi Media Center';
+  if (s.includes('smarters')) return 'IPTV Smarters';
+  if (s.includes('iphone')) return 'Apple iPhone';
+  if (s.includes('ipad')) return 'Apple iPad';
+  if (s.includes('android')) return 'Dispositivo Android';
+  if (s.includes('macintosh') || s.includes('mac os')) return 'Mac (Navegador)';
+  if (s.includes('windows')) return 'PC Windows';
+  if (s.includes('linux')) return 'PC Linux';
+  return 'Navegador Web';
+}
+
+function recordClientActivity(ip: string, ua: string, explicitId?: string, explicitDevice?: string): void {
+  cleanInactiveClients();
+  const cleanIp = ip.replace('::ffff:', '');
+  const id = explicitId || `${cleanIp}-${(ua || 'client').slice(0, 20)}`;
+  const device = explicitDevice || parseDeviceFromUserAgent(ua);
+  activeClients.set(id, {
+    id,
+    ip: cleanIp,
+    device,
+    lastSeen: Date.now()
+  });
+}
 
 function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -20,325 +75,123 @@ function getContentType(filePath: string): string {
     case '.png': return 'image/png';
     case '.jpg':
     case '.jpeg': return 'image/jpeg';
+    case '.gif': return 'image/gif';
+    case '.webp': return 'image/webp';
+    case '.bmp': return 'image/bmp';
+    case '.avif': return 'image/avif';
+    case '.svg': return 'image/svg+xml';
     case '.mp3': return 'audio/mpeg';
     case '.wav': return 'audio/wav';
     case '.flac': return 'audio/flac';
+    case '.ogg': return 'audio/ogg';
+    case '.m4a':
+    case '.aac': return 'audio/aac';
     case '.mp4': return 'video/mp4';
+    case '.webm': return 'video/webm';
     case '.mkv': return 'video/x-matroska';
+    case '.mov': return 'video/quicktime';
+    case '.m3u':
+    case '.m3u8': return 'application/vnd.apple.mpegurl';
     default: return 'application/octet-stream';
   }
 }
 
-function serveStatic(res: http.ServerResponse, reqPath: string) {
-  if (reqPath === '/web.js') {
-    res.writeHead(200, { 'Content-Type': 'application/javascript' });
-    res.end(`
-document.addEventListener('DOMContentLoaded', () => {
-  if (window.lucide) window.lucide.createIcons();
-
-  const trackListEl = document.getElementById('content-view');
-  const audioEl = document.createElement('audio');
-  document.body.appendChild(audioEl);
-  const videoEl = document.getElementById('video-player');
-  const videoOverlay = document.getElementById('video-overlay');
-  const btnCloseVideo = document.getElementById('btn-close-video');
-  
-  if (btnCloseVideo) {
-    btnCloseVideo.onclick = () => {
-      if (videoOverlay) videoOverlay.classList.add('hidden');
-      if (videoEl) videoEl.pause();
-    };
-  }
-  
-  const coverEl = document.getElementById('player-artwork-img');
-  const titleEl = document.getElementById('player-title');
-  const artistEl = document.getElementById('player-artist');
-  const albumEl = document.getElementById('player-album');
-  
-  const playPauseBtn = document.getElementById('btn-play-pause');
-  const seekSlider = document.getElementById('seek-slider');
-  const seekFill = document.getElementById('seek-fill');
-  const currentTimeLabel = document.getElementById('current-time');
-  const totalTimeLabel = document.getElementById('total-time');
-
-  const btnNext = document.getElementById('btn-next');
-  const btnPrev = document.getElementById('btn-prev');
-  const volumeSlider = document.getElementById('volume-slider');
-  const volumeFill = document.getElementById('volume-fill');
-  
-  const btnAllSongs = document.getElementById('btn-all-songs');
-  const btnAllVideos = document.getElementById('btn-all-videos');
-  const btnHome = document.getElementById('btn-home');
-
-  let tracks = [];
-  let currentTracks = [];
-  let currentTrack = null;
-  let isPlaying = false;
-
-  const headerActions = document.querySelector('.header-actions');
-  if (headerActions) {
-    const uploadBtn = document.createElement('button');
-    uploadBtn.className = 'btn-primary';
-    uploadBtn.innerHTML = '<i data-lucide="upload"></i> Upload Media';
-    uploadBtn.onclick = triggerUpload;
-    headerActions.insertBefore(uploadBtn, headerActions.firstChild);
-    if (window.lucide) window.lucide.createIcons();
+function proxyStream(req: http.IncomingMessage, res: http.ServerResponse, targetUrlStr: string, redirectsRemaining = 5): void {
+  if (redirectsRemaining <= 0) {
+    res.writeHead(502, { 'Content-Type': 'text/plain' });
+    res.end('Too many redirects');
+    return;
   }
 
-  document.getElementById('btn-import-media')?.remove();
-  document.getElementById('btn-import-youtube')?.remove();
-  document.getElementById('btn-server')?.remove();
-  document.getElementById('btn-setup')?.remove();
-
-  async function loadLibrary() {
-    trackListEl.innerHTML = '<div style="padding: 20px;">Loading...</div>';
-    try {
-      const res = await fetch('/api/library');
-      tracks = await res.json();
-      currentTracks = tracks;
-      renderTracks(currentTracks);
-    } catch (e) {
-      trackListEl.innerHTML = '<div style="padding: 20px; color: red;">Failed to load library</div>';
-    }
+  let targetUrl: URL;
+  try {
+    targetUrl = new URL(targetUrlStr);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Invalid URL');
+    return;
   }
 
-  function filterTracks(type) {
-    if (type === 'audio') currentTracks = tracks.filter(t => !t.file_path?.match(/\\.(mp4|webm|mkv|mov)$/i));
-    else if (type === 'video') currentTracks = tracks.filter(t => t.file_path?.match(/\\.(mp4|webm|mkv|mov)$/i));
-    else currentTracks = tracks;
-    
-    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-    if (type === 'audio' && btnAllSongs) btnAllSongs.classList.add('active');
-    if (type === 'video' && btnAllVideos) btnAllVideos.classList.add('active');
-    if (type === 'all' && btnHome) btnHome.classList.add('active');
-    
-    renderTracks(currentTracks);
+  const isHttps = targetUrl.protocol === 'https:';
+  const client = isHttps ? https : http;
+
+  const headers: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': '*/*'
+  };
+  if (req.headers.range) {
+    headers['Range'] = req.headers.range as string;
   }
 
-  if (btnAllSongs) btnAllSongs.onclick = () => filterTracks('audio');
-  if (btnAllVideos) btnAllVideos.onclick = () => filterTracks('video');
-  if (btnHome) btnHome.onclick = () => filterTracks('all');
-
-  function renderTracks(tracksToRender = currentTracks) {
-    if (tracksToRender.length === 0) {
-      trackListEl.innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-muted);">No tracks found. Upload some media!</div>';
+  const proxyReq = client.get(targetUrl, { headers }, (proxyRes) => {
+    // Follow HTTP redirects
+    if (proxyRes.statusCode && [301, 302, 303, 307, 308].includes(proxyRes.statusCode) && proxyRes.headers.location) {
+      const redirectUrl = new URL(proxyRes.headers.location, targetUrl).toString();
+      proxyStream(req, res, redirectUrl, redirectsRemaining - 1);
       return;
     }
 
-    const grid = document.createElement('div');
-    grid.className = 'track-grid';
-    
-    tracksToRender.forEach((track, index) => {
-      const card = document.createElement('div');
-      card.className = 'track-card';
-      card.onclick = () => playTrack(track);
+    const contentType = proxyRes.headers['content-type'] || '';
+    const isM3u8 = contentType.includes('mpegurl') || targetUrl.pathname.endsWith('.m3u8') || targetUrl.pathname.endsWith('.m3u');
 
-      const coverContainer = document.createElement('div');
-      coverContainer.className = 'track-cover';
-      const img = document.createElement('img');
-      img.src = '/api/cover/' + track.uuid;
-      img.onerror = () => img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-      coverContainer.appendChild(img);
+    // CORS Headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
 
-      const info = document.createElement('div');
-      info.className = 'track-info';
-      
-      const title = document.createElement('h3');
-      title.className = 'track-title';
-      title.textContent = track.title || (track.file_path ? track.file_path.split('/').pop() : 'Unknown');
-      
-      const artist = document.createElement('p');
-      artist.className = 'track-artist';
-      artist.textContent = track.artist || 'Unknown Artist';
-
-      info.appendChild(title);
-      info.appendChild(artist);
-      card.appendChild(coverContainer);
-      card.appendChild(info);
-      grid.appendChild(card);
-    });
-
-    trackListEl.innerHTML = '';
-    trackListEl.appendChild(grid);
-  }
-
-  function formatTime(seconds) {
-    if (isNaN(seconds)) return '0:00';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return m + ':' + (s < 10 ? '0' : '') + s;
-  }
-
-  function playTrack(track) {
-    currentTrack = track;
-    const isVideo = track.file_path ? track.file_path.toLowerCase().match(/\\.(mp4|webm|mkv|mov)$/) : false;
-    const streamUrl = '/api/stream/' + track.uuid;
-    
-    if (isVideo) {
-      audioEl.pause();
-      if (videoOverlay) videoOverlay.classList.remove('hidden');
-      if (videoEl) { videoEl.src = streamUrl; videoEl.play(); }
-    } else {
-      if (videoOverlay) videoOverlay.classList.add('hidden');
-      if (videoEl) videoEl.pause();
-      audioEl.src = streamUrl;
-      audioEl.play();
+    if (proxyRes.headers['content-range']) {
+      res.setHeader('Content-Range', proxyRes.headers['content-range']);
     }
-    
-    if (coverEl) coverEl.src = '/api/cover/' + track.uuid;
-    if (titleEl) titleEl.textContent = track.title || (track.file_path ? track.file_path.split('/').pop() : 'Unknown');
-    if (artistEl) artistEl.textContent = track.artist || 'Unknown Artist';
-    if (albumEl) albumEl.textContent = track.album || '';
-    
-    updatePlayPauseUI(true);
-  }
-
-  function updatePlayPauseUI(playing) {
-    isPlaying = playing;
-    if (playPauseBtn) {
-      playPauseBtn.innerHTML = playing ? '<i data-lucide="pause"></i>' : '<i data-lucide="play"></i>';
-      if (window.lucide) window.lucide.createIcons();
+    if (proxyRes.headers['accept-ranges']) {
+      res.setHeader('Accept-Ranges', proxyRes.headers['accept-ranges']);
     }
-  }
 
-  function togglePlay() {
-    if (!currentTrack) return;
-    const player = (videoOverlay && !videoOverlay.classList.contains('hidden')) ? videoEl : audioEl;
-    if (isPlaying) player.pause();
-    else player.play();
-  }
+    if (isM3u8) {
+      // Manifest rewriting: Rewrite relative segments & playlists to go through our proxy
+      let data = '';
+      proxyRes.setEncoding('utf8');
+      proxyRes.on('data', chunk => { data += chunk; });
+      proxyRes.on('end', () => {
+        const lines = data.split(/\r?\n/);
+        const rewritten = lines.map(line => {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) return line;
+          try {
+            const absoluteUrl = new URL(trimmed, targetUrl).toString();
+            return `/api/stream-proxy?url=${encodeURIComponent(absoluteUrl)}`;
+          } catch {
+            return line;
+          }
+        }).join('\n');
 
-  if (playPauseBtn) playPauseBtn.addEventListener('click', togglePlay);
-
-  if (btnNext) btnNext.onclick = () => {
-    const idx = currentTracks.findIndex(t => t.uuid === currentTrack?.uuid);
-    if (idx >= 0 && idx < currentTracks.length - 1) playTrack(currentTracks[idx + 1]);
-  };
-  
-  if (btnPrev) btnPrev.onclick = () => {
-    const idx = currentTracks.findIndex(t => t.uuid === currentTrack?.uuid);
-    if (idx > 0) playTrack(currentTracks[idx - 1]);
-  };
-
-  if (volumeSlider) {
-    volumeSlider.addEventListener('input', (e) => {
-      const v = e.target.value / 100;
-      audioEl.volume = v;
-      if (videoEl) videoEl.volume = v;
-      if (volumeFill) volumeFill.style.width = e.target.value + '%';
-    });
-  }
-
-  audioEl.addEventListener('ended', () => {
-    if (btnNext) btnNext.click();
-  });
-  if (videoEl) {
-    videoEl.addEventListener('ended', () => {
-      if (btnNext) btnNext.click();
-    });
-  }
-
-  const onTimeUpdate = (e) => {
-    const player = e.target;
-    if (currentTimeLabel) currentTimeLabel.textContent = formatTime(player.currentTime);
-    if (totalTimeLabel) totalTimeLabel.textContent = formatTime(player.duration);
-    if (player.duration && seekFill && seekSlider) {
-      const pct = (player.currentTime / player.duration) * 100;
-      seekFill.style.width = pct + '%';
-      seekSlider.value = player.currentTime;
-      seekSlider.max = player.duration;
-    }
-  };
-
-  audioEl.addEventListener('timeupdate', onTimeUpdate);
-  if (videoEl) videoEl.addEventListener('timeupdate', onTimeUpdate);
-  const onPlay = () => updatePlayPauseUI(true);
-  const onPause = () => updatePlayPauseUI(false);
-  audioEl.addEventListener('play', onPlay);
-  audioEl.addEventListener('pause', onPause);
-  if (videoEl) { videoEl.addEventListener('play', onPlay); videoEl.addEventListener('pause', onPause); }
-
-  if (seekSlider) {
-    seekSlider.addEventListener('input', (e) => {
-      const time = parseFloat(e.target.value);
-      const player = (videoOverlay && !videoOverlay.classList.contains('hidden')) ? videoEl : audioEl;
-      player.currentTime = time;
-    });
-  }
-
-  function triggerUpload() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'audio/*,video/*';
-    input.onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      const btn = document.querySelector('.header-actions .btn-primary');
-      const originalText = btn.innerHTML;
-      btn.innerHTML = '<i data-lucide="loader" style="animation: spin 1s linear infinite"></i> Uploading...';
-      
-      try {
-        const res = await fetch('/api/upload?filename=' + encodeURIComponent(file.name), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream' },
-          body: file
+        res.writeHead(proxyRes.statusCode || 200, {
+          'Content-Type': 'application/vnd.apple.mpegurl; charset=utf-8',
+          'Access-Control-Allow-Origin': '*'
         });
-        
-        if (res.ok) {
-          btn.innerHTML = '<i data-lucide="check"></i> Success!';
-          setTimeout(() => {
-            btn.innerHTML = originalText;
-            if (window.lucide) window.lucide.createIcons();
-            loadLibrary();
-          }, 2000);
-        } else {
-          alert('Upload failed');
-          btn.innerHTML = originalText;
-        }
-      } catch (err) {
-        alert('Upload error: ' + err.message);
-        btn.innerHTML = originalText;
+        res.end(rewritten);
+      });
+    } else {
+      if (proxyRes.headers['content-type']) {
+        res.setHeader('Content-Type', proxyRes.headers['content-type']);
       }
-    };
-    input.click();
-  }
-
-  loadLibrary();
-});
-    `);
-    return;
-  }
-
-  if (reqPath.startsWith('/src/assets/')) {
-    const assetPath = path.join(__dirname, '../../src/renderer', reqPath);
-    if (fs.existsSync(assetPath)) {
-      res.writeHead(200, { 'Content-Type': getContentType(assetPath) });
-      fs.createReadStream(assetPath).pipe(res);
-    } else {
-      res.writeHead(404); res.end();
+      if (proxyRes.headers['content-length']) {
+        res.setHeader('Content-Length', proxyRes.headers['content-length']);
+      }
+      res.writeHead(proxyRes.statusCode || 200);
+      proxyRes.pipe(res);
     }
-    return;
-  }
+  });
 
-  if (reqPath === '/' || reqPath === '/index.html') {
-    const htmlPath = path.join(__dirname, '../../src/renderer/index.html');
-    if (fs.existsSync(htmlPath)) {
-      let html = fs.readFileSync(htmlPath, 'utf8');
-      html = html.replace('<script type="module" src="./src/renderer.ts"></script>', '<script src="/web.js"></script>');
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(html);
-    } else {
-      res.writeHead(404);
-      res.end('Not found');
+  proxyReq.on('error', (err) => {
+    console.error('Proxy error:', err.message);
+    if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
+      res.end('Proxy error: ' + err.message);
     }
-  } else {
-    res.writeHead(404);
-    res.end('Not found');
-  }
+  });
 }
 
-function serveMedia(req: http.IncomingMessage, res: http.ServerResponse, filePath: string) {
+function serveMedia(req: http.IncomingMessage, res: http.ServerResponse, filePath: string): void {
   if (!fs.existsSync(filePath)) {
     res.writeHead(404);
     res.end('File not found');
@@ -349,6 +202,8 @@ function serveMedia(req: http.IncomingMessage, res: http.ServerResponse, filePat
   const total = stat.size;
   const range = req.headers.range;
 
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
   if (range) {
     const parts = range.replace(/bytes=/, "").split("-");
     const partialstart = parts[0];
@@ -358,7 +213,7 @@ function serveMedia(req: http.IncomingMessage, res: http.ServerResponse, filePat
     const end = partialend ? parseInt(partialend, 10) : total - 1;
     const chunksize = (end - start) + 1;
     
-    const file = fs.createReadStream(filePath, {start: start, end: end});
+    const file = fs.createReadStream(filePath, { start, end });
     file.on('error', (err) => {
       console.error('Stream error:', err);
       if (!res.headersSent) res.writeHead(500);
@@ -386,16 +241,22 @@ function serveMedia(req: http.IncomingMessage, res: http.ServerResponse, filePat
   }
 }
 
-export function startServer(port: number = 3000): { isRunning: boolean; ip: string; port: number } {
+export function startServer(port: number = 3000): {
+  isRunning: boolean;
+  ip: string;
+  port: number;
+  connectedCount: number;
+  clients: ConnectedClient[];
+} {
   if (server) {
     return getServerStatus();
   }
 
   server = http.createServer((req, res) => {
-    // Enable CORS
+    // Enable CORS for all incoming API & stream requests
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization');
 
     if (req.method === 'OPTIONS') {
       res.writeHead(200);
@@ -403,15 +264,141 @@ export function startServer(port: number = 3000): { isRunning: boolean; ip: stri
       return;
     }
 
-    const url = new URL(req.url || '/', `http://${req.headers.host}`);
-    
-    if (url.pathname === '/api/library') {
-      const tracks = dbOps.getAllTracks();
+    const host = req.headers.host || `localhost:${currentPort}`;
+    const url = new URL(req.url || '/', `http://${host}`);
+    const clientIp = (req.socket.remoteAddress || req.headers['x-forwarded-for'] || '127.0.0.1').toString();
+    const userAgent = (req.headers['user-agent'] || '').toString();
+
+    // 1. Root & TV Web Interface
+    if (url.pathname === '/' || url.pathname === '/index.html') {
+      recordClientActivity(clientIp, userAgent, url.searchParams.get('clientId') || undefined);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(getTvWebHtml(localIpUrl(), currentPort));
+      return;
+    }
+
+    // 2. IPTV Playlist (M3U / M3U8) for Smart TV Apps (TiviMate, VLC, SS IPTV, Kodi, etc.)
+    if (url.pathname === '/iptv.m3u' || url.pathname === '/playlist.m3u' || url.pathname === '/channels.m3u') {
+      recordClientActivity(clientIp, userAgent, undefined, parseDeviceFromUserAgent(userAgent) || 'Smart TV IPTV Player');
+      const channels = dbOps.getM3UChannels();
+      let m3u = '#EXTM3U x-tvg-url=""\n';
+      for (const ch of channels) {
+        const name = (ch.name || 'Canal').replace(/"/g, '');
+        const group = (ch.group_title || 'Geral').replace(/"/g, '');
+        const logo = ch.logo_url || '';
+        m3u += `#EXTINF:-1 tvg-id="${ch.id}" tvg-name="${name}" tvg-logo="${logo}" group-title="${group}",${name}\n`;
+        m3u += `${ch.url}\n`;
+      }
+      res.writeHead(200, {
+        'Content-Type': 'application/x-mpegurl; charset=utf-8',
+        'Content-Disposition': 'inline; filename="blackbird-iptv.m3u"'
+      });
+      res.end(m3u);
+      return;
+    }
+
+    // 3. IPTV Channels JSON API
+    if (url.pathname === '/api/iptv' || url.pathname === '/api/m3u') {
+      recordClientActivity(clientIp, userAgent, url.searchParams.get('clientId') || undefined);
+      const channels = dbOps.getM3UChannels();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(channels));
+      return;
+    }
+
+    // 4. Stream Proxy (CORS and format bypass for Smart TV web browsers)
+    if (url.pathname === '/api/stream-proxy') {
+      recordClientActivity(clientIp, userAgent, url.searchParams.get('clientId') || undefined);
+      const targetUrl = url.searchParams.get('url');
+      if (!targetUrl) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' });
+        res.end('Missing url parameter');
+        return;
+      }
+      proxyStream(req, res, targetUrl);
+      return;
+    }
+
+    // 5. Client Heartbeat (Web & TV clients ping every 5 seconds)
+    if (url.pathname === '/api/heartbeat') {
+      const explicitClientId = url.searchParams.get('clientId') || undefined;
+      const explicitDevice = url.searchParams.get('device') || undefined;
+      recordClientActivity(clientIp, userAgent, explicitClientId, explicitDevice);
       res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, connectedCount: activeClients.size }));
+      return;
+    }
+
+    // 6. Client Disconnect Beacon
+    if (url.pathname === '/api/disconnect') {
+      const explicitClientId = url.searchParams.get('clientId');
+      if (explicitClientId && activeClients.has(explicitClientId)) {
+        activeClients.delete(explicitClientId);
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, connectedCount: activeClients.size }));
+      return;
+    }
+
+    // 7. Server Status API
+    if (url.pathname === '/api/status') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(getServerStatus()));
+      return;
+    }
+
+    // 8. Media Library JSON API
+    if (url.pathname === '/api/library') {
+      recordClientActivity(clientIp, userAgent, url.searchParams.get('clientId') || undefined);
+      const tracks = dbOps.getAllTracks();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(tracks));
       return;
     }
 
+    // 8.1. Photos JSON API
+    if (url.pathname === '/api/photos') {
+      recordClientActivity(clientIp, userAgent, url.searchParams.get('clientId') || undefined);
+      const tracks = dbOps.getAllTracks();
+      const photos = tracks.filter(t => {
+        const ext = (t.format || (t.file_path ? t.file_path.split('.').pop() : '') || '').toLowerCase();
+        return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'svg'].includes(ext) || (t.mimetype && t.mimetype.startsWith('image/'));
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(photos));
+      return;
+    }
+
+    // 9. Stream Local File
+    if (url.pathname.startsWith('/api/stream/')) {
+      recordClientActivity(clientIp, userAgent, url.searchParams.get('clientId') || undefined);
+      const uuid = url.pathname.split('/')[3];
+      const filePath = dbOps.getTrackPath(uuid);
+      if (filePath) {
+        serveMedia(req, res, filePath);
+      } else {
+        res.writeHead(404);
+        res.end('Track not found');
+      }
+      return;
+    }
+
+    // 10. Cover Image
+    if (url.pathname.startsWith('/api/cover/')) {
+      const uuid = url.pathname.split('/')[3];
+      const coverPath = dbOps.getTrackCoverPath(uuid);
+      if (coverPath && fs.existsSync(coverPath)) {
+        res.writeHead(200, { 'Content-Type': getContentType(coverPath) });
+        fs.createReadStream(coverPath).pipe(res);
+      } else {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#18181b"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#71717a" font-family="sans-serif" font-size="48">🎵</text></svg>`;
+        res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+        res.end(svg);
+      }
+      return;
+    }
+
+    // 11. Upload File
     if (url.pathname === '/api/upload' && req.method === 'POST') {
       const filename = url.searchParams.get('filename');
       if (!filename) {
@@ -457,33 +444,18 @@ export function startServer(port: number = 3000): { isRunning: boolean; ip: stri
       return;
     }
 
-    if (url.pathname.startsWith('/api/stream/')) {
-      const uuid = url.pathname.split('/')[3];
-      const filePath = dbOps.getTrackPath(uuid);
-      if (filePath) {
-        serveMedia(req, res, filePath);
-      } else {
-        res.writeHead(404);
-        res.end('Track not found');
+    // 12. Static Assets fallback
+    if (url.pathname.startsWith('/src/assets/')) {
+      const assetPath = path.join(__dirname, '../../src/renderer', url.pathname);
+      if (fs.existsSync(assetPath)) {
+        res.writeHead(200, { 'Content-Type': getContentType(assetPath) });
+        fs.createReadStream(assetPath).pipe(res);
+        return;
       }
-      return;
     }
 
-    if (url.pathname.startsWith('/api/cover/')) {
-      const uuid = url.pathname.split('/')[3];
-      const coverPath = dbOps.getTrackCoverPath(uuid);
-      if (coverPath && fs.existsSync(coverPath)) {
-        res.writeHead(200, { 'Content-Type': getContentType(coverPath) });
-        fs.createReadStream(coverPath).pipe(res);
-      } else {
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#2a2a2a"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#666" font-family="sans-serif" font-size="48">🎵</text></svg>`;
-        res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
-        res.end(svg);
-      }
-      return;
-    }
-
-    serveStatic(res, url.pathname);
+    res.writeHead(404);
+    res.end('Not found');
   });
 
   server.on('error', (e: any) => {
@@ -502,24 +474,40 @@ export function startServer(port: number = 3000): { isRunning: boolean; ip: stri
 
   currentPort = port;
   server.listen(port, () => {
-    console.log(`Server listening on port ${port}`);
+    console.log(`BlackBird TV Server listening on port ${port}`);
   });
 
   return getServerStatus();
 }
 
-export function stopServer(): { isRunning: boolean; ip: string; port: number } {
+export function stopServer(): {
+  isRunning: boolean;
+  ip: string;
+  port: number;
+  connectedCount: number;
+  clients: ConnectedClient[];
+} {
   if (server) {
     server.close();
     server = null;
   }
+  activeClients.clear();
   return getServerStatus();
 }
 
-export function getServerStatus(): { isRunning: boolean; ip: string; port: number } {
+export function getServerStatus(): {
+  isRunning: boolean;
+  ip: string;
+  port: number;
+  connectedCount: number;
+  clients: ConnectedClient[];
+} {
+  cleanInactiveClients();
   return {
     isRunning: server !== null,
     ip: localIpUrl(),
-    port: currentPort
+    port: currentPort,
+    connectedCount: activeClients.size,
+    clients: Array.from(activeClients.values())
   };
 }

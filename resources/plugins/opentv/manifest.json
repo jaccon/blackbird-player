@@ -1,0 +1,11 @@
+{
+  "id": "opentv",
+  "name": "OpenTV & M3U RTSP",
+  "version": "1.0.0",
+  "description": "Watch live OpenTV channels, parse M3U playlists and stream RTSP/HLS feeds directly in BlackBird.",
+  "author": "BlackBird Team",
+  "icon": "tv",
+  "main": "index.js",
+  "styles": "style.css",
+  "enabled": true
+}

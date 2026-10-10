@@ -40,6 +40,7 @@ const api = {
   getServerStatus: () => ipcRenderer.invoke('get-server-status'),
   startServer: (port?: number) => ipcRenderer.invoke('start-server', port),
   stopServer: () => ipcRenderer.invoke('stop-server'),
+  openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   // Hidden Files APIs
   getHiddenTracks: (folderId?: string | null) => ipcRenderer.invoke('get-hidden-tracks', folderId),
   getHiddenFolders: () => ipcRenderer.invoke('get-hidden-folders'),
@@ -78,7 +79,17 @@ const api = {
   importM3uUrl: (url: string) => ipcRenderer.invoke('import-m3u-url', url),
   getM3uChannels: () => ipcRenderer.invoke('get-m3u-channels'),
   toggleM3uFavorite: (id: string) => ipcRenderer.invoke('toggle-m3u-favorite', id),
-  deleteM3uChannel: (id: string) => ipcRenderer.invoke('delete-m3u-channel', id)
+  deleteM3uChannel: (id: string) => ipcRenderer.invoke('delete-m3u-channel', id),
+  startM3uScan: () => ipcRenderer.invoke('start-m3u-scan'),
+  cancelM3uScan: () => ipcRenderer.invoke('cancel-m3u-scan'),
+  isM3uScanInProgress: () => ipcRenderer.invoke('is-m3u-scan-in-progress'),
+  onM3uScanProgress: (callback: (progress: any) => void) => {
+    const listener = (_: any, value: any) => callback(value)
+    ipcRenderer.on('iptv-scan:progress', listener)
+    return () => {
+      ipcRenderer.removeListener('iptv-scan:progress', listener)
+    }
+  }
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

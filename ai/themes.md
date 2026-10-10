@@ -26,6 +26,7 @@ Below is the list of variables you can customize and where they are applied in t
 | `--bg-dark` | The primary background color. Usually the darkest color. (e.g. sidebars, main background). |
 | `--bg-card` | Slightly lighter background used for overlays, lists, and elevated content. |
 | `--sidebar-bg`| Background color specifically for the sidebar. |
+| `--player-bg` | Background color or translucent layer for the bottom player bar (e.g. `rgba(18, 18, 20, 0.08)`). |
 | `--text-main` | The primary text color used for titles, tracks, and active items. |
 | `--text-muted` | Secondary text color used for inactive icons, descriptions, and empty states. |
 | `--accent` | The main brand/highlight color used for buttons, active states, and hover effects. |
@@ -45,7 +46,8 @@ Below is the list of variables you can customize and where they are applied in t
   "variables": {
     "--bg-dark": "#050510",
     "--bg-card": "#0d0d1e",
-    "sidebar-bg": "#010108",
+    "--sidebar-bg": "#010108",
+    "--player-bg": "rgba(5, 5, 16, 0.35)",
     "--text-main": "#ff0055",
     "--text-muted": "#ff0055",
     "--accent": "#ff0055",
@@ -67,6 +69,7 @@ Below is the list of variables you can customize and where they are applied in t
     "--bg-dark": "#282a36",
     "--bg-card": "#44475a",
     "--sidebar-bg": "#282a36",
+    "--player-bg": "rgba(40, 42, 54, 0.35)",
     "--text-main": "#f8f8f2",
     "--text-muted": "#6272a4",
     "--accent": "#bd93f9",
@@ -89,6 +92,7 @@ While BlackBird is designed around dark mode, light themes are possible if prope
     "--bg-dark": "#f4f4f5",
     "--bg-card": "#ffffff",
     "--sidebar-bg": "#fcfcfc",
+    "--player-bg": "rgba(255, 255, 255, 0.35)",
     "--text-main": "#18181b",
     "--text-muted": "#71717a",
     "--accent": "#000000",
