@@ -35,14 +35,15 @@
           <ul>
             <li id="btn-home" class="active"><i data-lucide="home"></i> Home</li>
             <li id="btn-all-songs"><i data-lucide="music"></i> Musics</li>
-            <li id="btn-albums"><i data-lucide="disc"></i> Albums</li>
-            <li id="btn-artists"><i data-lucide="mic"></i> Artists</li>
+            <li id="btn-music-tracks" class="sidebar-sub-item"><i data-lucide="folder"></i> Tracks & Folders</li>
+            <li id="btn-albums" class="sidebar-sub-item"><i data-lucide="disc"></i> Albums</li>
+            <li id="btn-artists" class="sidebar-sub-item"><i data-lucide="mic"></i> Artists</li>
             <li id="btn-all-videos"><i data-lucide="video"></i> All Videos</li>
             <li id="btn-favorites"><i data-lucide="heart"></i> My Favorites</li>
             <li id="btn-playlists-screen"><i data-lucide="list-music"></i> Playlists</li>
             <li id="btn-photos"><i data-lucide="image"></i> Photos</li>
             <li id="btn-radio"><i data-lucide="radio"></i> Radio</li>
-            <li id="btn-m3u-channels"><i data-lucide="tv"></i> IPTV / Channels</li>
+            <li id="btn-m3u-channels"><i data-lucide="tv"></i> Channels</li>
             <li id="btn-statistics"><i data-lucide="bar-chart-2"></i> Statistics</li>
             <li id="btn-history"><i data-lucide="clock"></i> History</li>
             <li id="btn-hidden-files"><i data-lucide="lock"></i> Hidden Files</li>
@@ -205,6 +206,58 @@
       <div class="modal-footer">
         <button class="btn-secondary btn-cancel-modal">Cancel</button>
         <button class="btn-primary" id="btn-save-playlist">Create Playlist</button>
+      </div>
+    </div>
+
+    <!-- Media Folder Modal (Create / Rename) -->
+    <div id="media-folder-modal" class="modal-content hidden" style="max-width: 440px;">
+      <div class="modal-header">
+        <h2 id="media-folder-modal-heading" style="display: flex; align-items: center; gap: 8px;">
+          <i data-lucide="folder-plus" style="color: var(--accent);"></i> <span id="media-folder-modal-title-text">Nova Pasta</span>
+        </h2>
+        <button class="btn-icon circle-small btn-close-modal"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body" style="padding: 16px 20px;">
+        <label id="media-folder-modal-label" for="input-media-folder-name" style="display: block; margin-bottom: 8px; font-size: 13px; color: var(--text-muted);">Nome da Pasta</label>
+        <input type="text" id="input-media-folder-name" placeholder="Ex: Favoritas, Rock, Animes..." style="width: 100%; padding: 10px 14px; font-size: 14px; border-radius: var(--radius-md); background: var(--glass); border: 1px solid var(--border); color: var(--text-main); outline: none;">
+      </div>
+      <div class="modal-footer" style="padding: 12px 20px; display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn-secondary btn-cancel-modal">Cancelar</button>
+        <button class="btn-primary" id="btn-save-media-folder">Salvar</button>
+      </div>
+    </div>
+
+    <!-- Move To Media Folder Modal -->
+    <div id="move-to-folder-modal" class="modal-content hidden" style="max-width: 460px;">
+      <div class="modal-header">
+        <h2 style="display: flex; align-items: center; gap: 8px;">
+          <i data-lucide="folder-symlink" style="color: var(--accent);"></i> <span id="move-to-folder-title">Organizar em Pasta</span>
+        </h2>
+        <button class="btn-icon circle-small btn-close-modal"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body" style="padding: 16px 20px;">
+        <p id="move-to-folder-subtitle" style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          Selecione uma pasta para mover os arquivos:
+        </p>
+
+        <!-- Inline quick folder creator -->
+        <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+          <input type="text" id="input-quick-media-folder-name" placeholder="Criar nova pasta..." style="flex: 1; padding: 8px 12px; font-size: 13px; border-radius: var(--radius-md); background: var(--glass); border: 1px solid var(--border); color: var(--text-main); outline: none;">
+          <button class="btn-primary small" id="btn-quick-create-media-folder" style="white-space: nowrap; font-size: 12px; padding: 8px 14px; display: flex; align-items: center; gap: 6px;">
+            <i data-lucide="plus" style="width: 14px; height: 14px;"></i> Criar & Mover
+          </button>
+        </div>
+
+        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); margin-bottom: 8px;">
+          Pastas Disponíveis
+        </div>
+
+        <div id="move-to-folder-items" style="max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px;">
+          <!-- Folders dynamically rendered here -->
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 12px 20px;">
+        <button class="btn-secondary btn-cancel-modal">Cancelar</button>
       </div>
     </div>
 
@@ -403,7 +456,7 @@
       </div>
       <div class="modal-body">
         <p class="modal-subtitle" style="margin-bottom: 16px; color: var(--text-muted); font-size: 13px;">
-          Import an IPTV or Radio M3U/M3U8 playlist from a web URL or a local file.
+          Import a Channels or Radio M3U/M3U8 playlist from a web URL or a local file.
         </p>
         <div class="input-group">
           <label for="m3u-url-input">M3U Web URL</label>

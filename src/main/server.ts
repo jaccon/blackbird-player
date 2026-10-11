@@ -9,9 +9,94 @@ import { getMetadata } from './metadata';
 import { app } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { getTvWebHtml } from './tv-web';
+import zlib from 'zlib';
+import crypto from 'crypto';
 
 let server: http.Server | null = null;
 let currentPort = 3000;
+
+interface CachedResponse {
+  raw: Buffer;
+  gzip: Buffer;
+  etag: string;
+  timestamp: number;
+}
+
+const memoryCache = new Map<string, CachedResponse>();
+
+export function invalidateServerCache(key?: string): void {
+  if (key) {
+    for (const k of Array.from(memoryCache.keys())) {
+      if (k.startsWith(key)) memoryCache.delete(k);
+    }
+  } else {
+    memoryCache.clear();
+  }
+}
+
+function getOrSetCachedResponse(
+  cacheKey: string,
+  generator: () => string | Buffer,
+  ttlMs: number = 60000
+): CachedResponse {
+  const cached = memoryCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && now - cached.timestamp < ttlMs) {
+    return cached;
+  }
+
+  const content = generator();
+  const raw = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf-8');
+  const gzip = zlib.gzipSync(raw, { level: 6 });
+  const etag = `"${crypto.createHash('md5').update(raw).digest('hex')}"`;
+
+  const entry: CachedResponse = {
+    raw,
+    gzip,
+    etag,
+    timestamp: now
+  };
+  memoryCache.set(cacheKey, entry);
+  return entry;
+}
+
+function sendCachedResponse(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  cached: CachedResponse,
+  contentType: string,
+  cacheControl: string = 'public, max-age=60, stale-while-revalidate=300'
+): void {
+  const clientEtag = req.headers['if-none-match'];
+  if (clientEtag && clientEtag === cached.etag) {
+    res.writeHead(304, {
+      'ETag': cached.etag,
+      'Cache-Control': cacheControl
+    });
+    res.end();
+    return;
+  }
+
+  const acceptEncoding = (req.headers['accept-encoding'] || '').toString();
+  const supportsGzip = acceptEncoding.includes('gzip');
+
+  const headers: Record<string, string | number> = {
+    'Content-Type': contentType,
+    'ETag': cached.etag,
+    'Cache-Control': cacheControl
+  };
+
+  if (supportsGzip) {
+    headers['Content-Encoding'] = 'gzip';
+    headers['Content-Length'] = cached.gzip.length;
+    res.writeHead(200, headers);
+    res.end(cached.gzip);
+  } else {
+    headers['Content-Length'] = cached.raw.length;
+    res.writeHead(200, headers);
+    res.end(cached.raw);
+  }
+}
 
 export interface ConnectedClient {
   id: string;
@@ -272,37 +357,39 @@ export function startServer(port: number = 3000): {
     // 1. Root & TV Web Interface
     if (url.pathname === '/' || url.pathname === '/index.html') {
       recordClientActivity(clientIp, userAgent, url.searchParams.get('clientId') || undefined);
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(getTvWebHtml(localIpUrl(), currentPort));
+      const cached = getOrSetCachedResponse('html_index', () => getTvWebHtml(localIpUrl(), currentPort), 300000);
+      sendCachedResponse(req, res, cached, 'text/html; charset=utf-8', 'public, max-age=0, must-revalidate');
       return;
     }
 
     // 2. IPTV Playlist (M3U / M3U8) for Smart TV Apps (TiviMate, VLC, SS IPTV, Kodi, etc.)
     if (url.pathname === '/iptv.m3u' || url.pathname === '/playlist.m3u' || url.pathname === '/channels.m3u') {
       recordClientActivity(clientIp, userAgent, undefined, parseDeviceFromUserAgent(userAgent) || 'Smart TV IPTV Player');
-      const channels = dbOps.getM3UChannels();
-      let m3u = '#EXTM3U x-tvg-url=""\n';
-      for (const ch of channels) {
-        const name = (ch.name || 'Canal').replace(/"/g, '');
-        const group = (ch.group_title || 'Geral').replace(/"/g, '');
-        const logo = ch.logo_url || '';
-        m3u += `#EXTINF:-1 tvg-id="${ch.id}" tvg-name="${name}" tvg-logo="${logo}" group-title="${group}",${name}\n`;
-        m3u += `${ch.url}\n`;
-      }
-      res.writeHead(200, {
-        'Content-Type': 'application/x-mpegurl; charset=utf-8',
-        'Content-Disposition': 'inline; filename="blackbird-iptv.m3u"'
-      });
-      res.end(m3u);
+      const cached = getOrSetCachedResponse('iptv_m3u', () => {
+        const channels = dbOps.getM3UChannels();
+        let m3u = '#EXTM3U x-tvg-url=""\n';
+        for (const ch of channels) {
+          const name = (ch.name || 'Canal').replace(/"/g, '');
+          const group = (ch.group_title || 'Geral').replace(/"/g, '');
+          const logo = ch.logo_url || '';
+          m3u += `#EXTINF:-1 tvg-id="${ch.id}" tvg-name="${name}" tvg-logo="${logo}" group-title="${group}",${name}\n`;
+          m3u += `${ch.url}\n`;
+        }
+        return m3u;
+      }, 60000);
+      res.setHeader('Content-Disposition', 'inline; filename="blackbird-iptv.m3u"');
+      sendCachedResponse(req, res, cached, 'application/x-mpegurl; charset=utf-8', 'public, max-age=30, stale-while-revalidate=300');
       return;
     }
 
     // 3. IPTV Channels JSON API
     if (url.pathname === '/api/iptv' || url.pathname === '/api/m3u') {
       recordClientActivity(clientIp, userAgent, url.searchParams.get('clientId') || undefined);
-      const channels = dbOps.getM3UChannels();
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(channels));
+      const cached = getOrSetCachedResponse('api_iptv', () => {
+        const channels = dbOps.getM3UChannels();
+        return JSON.stringify(channels);
+      }, 60000);
+      sendCachedResponse(req, res, cached, 'application/json; charset=utf-8', 'public, max-age=60, stale-while-revalidate=600');
       return;
     }
 
@@ -350,22 +437,26 @@ export function startServer(port: number = 3000): {
     // 8. Media Library JSON API
     if (url.pathname === '/api/library') {
       recordClientActivity(clientIp, userAgent, url.searchParams.get('clientId') || undefined);
-      const tracks = dbOps.getAllTracks();
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(tracks));
+      const cached = getOrSetCachedResponse('api_library', () => {
+        const tracks = dbOps.getAllTracks();
+        return JSON.stringify(tracks);
+      }, 60000);
+      sendCachedResponse(req, res, cached, 'application/json; charset=utf-8', 'public, max-age=60, stale-while-revalidate=600');
       return;
     }
 
     // 8.1. Photos JSON API
     if (url.pathname === '/api/photos') {
       recordClientActivity(clientIp, userAgent, url.searchParams.get('clientId') || undefined);
-      const tracks = dbOps.getAllTracks();
-      const photos = tracks.filter(t => {
-        const ext = (t.format || (t.file_path ? t.file_path.split('.').pop() : '') || '').toLowerCase();
-        return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'svg'].includes(ext) || (t.mimetype && t.mimetype.startsWith('image/'));
-      });
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(photos));
+      const cached = getOrSetCachedResponse('api_photos', () => {
+        const tracks = dbOps.getAllTracks();
+        const photos = tracks.filter(t => {
+          const ext = (t.format || (t.file_path ? t.file_path.split('.').pop() : '') || '').toLowerCase();
+          return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'svg'].includes(ext) || (t.mimetype && t.mimetype.startsWith('image/'));
+        });
+        return JSON.stringify(photos);
+      }, 60000);
+      sendCachedResponse(req, res, cached, 'application/json; charset=utf-8', 'public, max-age=60, stale-while-revalidate=600');
       return;
     }
 
@@ -383,16 +474,33 @@ export function startServer(port: number = 3000): {
       return;
     }
 
-    // 10. Cover Image
+    // 10. Cover Image (Cached aggressively)
     if (url.pathname.startsWith('/api/cover/')) {
       const uuid = url.pathname.split('/')[3];
+      const coverEtag = `"cover-${uuid}"`;
+      if (req.headers['if-none-match'] === coverEtag) {
+        res.writeHead(304, {
+          'ETag': coverEtag,
+          'Cache-Control': 'public, max-age=2592000, immutable'
+        });
+        res.end();
+        return;
+      }
       const coverPath = dbOps.getTrackCoverPath(uuid);
       if (coverPath && fs.existsSync(coverPath)) {
-        res.writeHead(200, { 'Content-Type': getContentType(coverPath) });
+        res.writeHead(200, {
+          'Content-Type': getContentType(coverPath),
+          'Cache-Control': 'public, max-age=2592000, immutable',
+          'ETag': coverEtag
+        });
         fs.createReadStream(coverPath).pipe(res);
       } else {
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#18181b"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#71717a" font-family="sans-serif" font-size="48">🎵</text></svg>`;
-        res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+        res.writeHead(200, {
+          'Content-Type': 'image/svg+xml',
+          'Cache-Control': 'public, max-age=2592000, immutable',
+          'ETag': coverEtag
+        });
         res.end(svg);
       }
       return;
@@ -433,6 +541,7 @@ export function startServer(port: number = 3000): {
             folder_path: uploadsDir
           };
           dbOps.upsertTrack(dbTrack);
+          invalidateServerCache('library');
           res.writeHead(200);
           res.end('Uploaded');
         } catch (e) {

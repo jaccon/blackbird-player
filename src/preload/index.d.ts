@@ -18,6 +18,7 @@ export interface TrackMetadata {
   is_favorite?: number;
   is_hidden?: number;
   hiddenFolderId?: string | null;
+  mediaFolderId?: string | null;
   description?: string;
   lyrics?: string;
 }
@@ -32,6 +33,14 @@ export interface Playlist {
 export interface HiddenFolder {
   id: string;
   name: string;
+  created_at?: string;
+  trackCount?: number;
+}
+
+export interface MediaFolder {
+  id: string;
+  name: string;
+  type: 'music' | 'video';
   created_at?: string;
   trackCount?: number;
 }
@@ -80,6 +89,7 @@ declare global {
       getLibrary: () => Promise<TrackMetadata[]>;
       getTrackCover: (uuid: string, filePath: string) => Promise<string | null>;
       getThemes: () => Promise<any[]>;
+      setWindowThemeColor: (bgColor: string, symbolColor?: string) => Promise<void>;
       deleteTracks: (uuids: string[]) => Promise<any>;
       getFavorites: () => Promise<TrackMetadata[]>;
       getPlayHistory: () => Promise<any[]>;
@@ -119,6 +129,13 @@ declare global {
       moveHiddenTrack: (trackUuid: string, folderId: string | null) => Promise<{ changes: number }>;
       hideTracks: (uuids: string[], folderId?: string | null) => Promise<{ changes: number }>;
       unhideTracks: (uuids: string[]) => Promise<{ changes: number }>;
+      // Media Folders (Music & Video)
+      getMediaFolders: (type: 'music' | 'video') => Promise<MediaFolder[]>;
+      createMediaFolder: (name: string, type: 'music' | 'video') => Promise<MediaFolder>;
+      renameMediaFolder: (id: string, name: string) => Promise<{ changes: number }>;
+      deleteMediaFolder: (id: string) => Promise<{ changes: number }>;
+      moveTrackToMediaFolder: (trackUuid: string, folderId: string | null) => Promise<{ changes: number }>;
+      moveTracksToMediaFolder: (trackUuids: string[], folderId: string | null) => Promise<{ changes: number }>;
       getSetting: (key: string) => Promise<string | null>;
       setSetting: (key: string, value: string) => Promise<any>;
       importHiddenFiles: (folderId?: string | null) => Promise<{ success: boolean, count: number }>;

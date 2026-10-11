@@ -4,7 +4,7 @@ export function getTvWebHtml(serverIp: string, serverPort: number): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>BlackBird TV • Central de Mídia & IPTV</title>
+  <title>BlackBird TV • Central de Mídia & Channels</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
@@ -926,7 +926,7 @@ export function getTvWebHtml(serverIp: string, serverPort: number): string {
     <!-- Navigation Tabs -->
     <nav class="nav-tabs" id="tv-tabs" role="tablist">
       <button class="nav-tab active" id="tab-btn-iptv" onclick="switchTab('iptv')">
-        📺 Canais IPTV
+        📺 Channels
       </button>
       <button class="nav-tab" id="tab-btn-music" onclick="switchTab('music')">
         🎵 Músicas
@@ -1020,9 +1020,9 @@ export function getTvWebHtml(serverIp: string, serverPort: number): string {
       <div class="connect-container">
         
         <div class="connect-card">
-          <h2>📺 Conectar Aplicativos IPTV na sua Smart TV</h2>
+          <h2>📺 Conectar Aplicativos de Canais na sua Smart TV</h2>
           <p>
-            Você pode carregar todos os canais do BlackBird diretamente no aplicativo IPTV da sua TV (como <strong>TiviMate</strong>, <strong>IPTV Smarters</strong>, <strong>Smart IPTV</strong>, <strong>SS IPTV</strong>, <strong>Kodi</strong> ou <strong>VLC</strong>).
+            Você pode carregar todos os canais do BlackBird diretamente no aplicativo de canais da sua TV (como <strong>TiviMate</strong>, <strong>IPTV Smarters</strong>, <strong>Smart IPTV</strong>, <strong>SS IPTV</strong>, <strong>Kodi</strong> ou <strong>VLC</strong>).
           </p>
           <div class="url-display-box">
             <span class="url-text" id="iptv-m3u-url">http://${serverIp}:${serverPort}/iptv.m3u</span>
@@ -1298,20 +1298,56 @@ export function getTvWebHtml(serverIp: string, serverPort: number): string {
       document.getElementById('section-connect').style.display = tab === 'connect' ? 'block' : 'none';
     }
 
-    // Load IPTV Channels
+    // Load IPTV Channels with Instant Cache (Stale-While-Revalidate)
     async function loadIptv() {
       const counter = document.getElementById('iptv-counter');
-      if (counter) counter.textContent = 'Carregando canais...';
+      
+      // 1. Instant Cache Load from Browser Storage (0ms)
       try {
-        const res = await fetch('/api/iptv?clientId=' + clientId);
+        const cachedRaw = localStorage.getItem('bb_tv_iptv_cache');
+        if (cachedRaw) {
+          const cachedChannels = JSON.parse(cachedRaw);
+          if (Array.isArray(cachedChannels) && cachedChannels.length > 0) {
+            channels = cachedChannels;
+            if (counter) counter.textContent = channels.length + ' canais disponíveis';
+            extractCategories();
+            filterChannels();
+          }
+        }
+      } catch (e) {
+        console.warn('Erro ao ler cache de canais:', e);
+      }
+
+      // 2. Fresh Network Fetch in Background
+      try {
+        const cachedEtag = localStorage.getItem('bb_tv_iptv_etag');
+        const headers = {};
+        if (cachedEtag) headers['If-None-Match'] = cachedEtag;
+
+        const res = await fetch('/api/iptv?clientId=' + clientId, { headers });
+        if (res.status === 304) {
+          if (counter) counter.textContent = channels.length + ' canais disponíveis';
+          return;
+        }
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        channels = await res.json();
+
+        const newEtag = res.headers.get('ETag');
+        if (newEtag) localStorage.setItem('bb_tv_iptv_etag', newEtag);
+
+        const freshChannels = await res.json();
+        channels = freshChannels;
+        try {
+          localStorage.setItem('bb_tv_iptv_cache', JSON.stringify(freshChannels));
+        } catch (e) {}
+
         if (counter) counter.textContent = channels.length + ' canais disponíveis';
         extractCategories();
         filterChannels();
       } catch (err) {
-        if (counter) counter.textContent = 'Erro ao carregar canais.';
-        console.error('Failed to load IPTV channels:', err);
+        if (!channels || channels.length === 0) {
+          if (counter) counter.textContent = 'Erro ao carregar canais.';
+        }
+        console.error('Failed to load fresh IPTV channels:', err);
       }
     }
 
@@ -1367,15 +1403,19 @@ export function getTvWebHtml(serverIp: string, serverPort: number): string {
       renderChannelGrid();
     }
 
-    function renderChannelGrid() {
+    let channelRenderLimit = 100;
+    function renderChannelGrid(resetLimit = true) {
       const grid = document.getElementById('channel-grid');
       if (!grid) return;
+      if (resetLimit) channelRenderLimit = 100;
+
       if (filteredChannels.length === 0) {
         grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 48px; color: var(--text-muted); font-size: 16px;">Nenhum canal encontrado.</div>';
         return;
       }
 
-      grid.innerHTML = filteredChannels.map((ch, idx) => {
+      const visible = filteredChannels.slice(0, channelRenderLimit);
+      let html = visible.map((ch, idx) => {
         const isCurrentPlaying = currentChannelIndex >= 0 && filteredChannels[currentChannelIndex]?.id === ch.id;
         const hasLogo = Boolean(ch.logo_url && typeof ch.logo_url === 'string' && ch.logo_url.trim().length > 0);
         const safeName = escapeHtml(ch.name || 'Canal');
@@ -1387,7 +1427,7 @@ export function getTvWebHtml(serverIp: string, serverPort: number): string {
                data-channel-idx="\${idx}">
             <span class="channel-badge-live">AO VIVO</span>
             <div class="channel-logo-wrap">
-              \${hasLogo ? \`<img src="\${encodeURI(ch.logo_url)}" alt="\${safeName}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">\` : ''}
+              \${hasLogo ? \`<img src="\${encodeURI(ch.logo_url)}" alt="\${safeName}" loading="lazy" decoding="async" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">\` : ''}
               <span class="channel-logo-placeholder" style="\${hasLogo ? 'display: none;' : 'display: flex;'}">📺</span>
             </div>
             <div class="channel-name">\${safeName}</div>
@@ -1395,6 +1435,29 @@ export function getTvWebHtml(serverIp: string, serverPort: number): string {
           </div>
         \`;
       }).join('');
+
+      if (filteredChannels.length > channelRenderLimit) {
+        html += \`<div id="channel-sentinel" style="grid-column: 1 / -1; text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px;">
+          Exibindo \${channelRenderLimit} de \${filteredChannels.length} canais (role para carregar mais)
+        </div>\`;
+      }
+
+      grid.innerHTML = html;
+    }
+
+    let isChannelScrollBound = false;
+    function setupChannelScroll() {
+      if (isChannelScrollBound) return;
+      isChannelScrollBound = true;
+      window.addEventListener('scroll', () => {
+        if (currentTab !== 'iptv') return;
+        if (channelRenderLimit >= filteredChannels.length) return;
+        const scrollBottom = window.innerHeight + window.scrollY;
+        if (scrollBottom >= document.documentElement.scrollHeight - 350) {
+          channelRenderLimit += 80;
+          renderChannelGrid(false);
+        }
+      }, { passive: true });
     }
 
     // Delegation for channel cards
@@ -1683,12 +1746,56 @@ export function getTvWebHtml(serverIp: string, serverPort: number): string {
       }
     }
 
-    // Load Music, Video & Photos Library
+    // Load Music, Video & Photos Library with Instant Cache (Stale-While-Revalidate)
     async function loadLibrary() {
+      // 1. Instant Cache Load from Browser Storage (0ms)
       try {
-        const res = await fetch('/api/library');
+        const cachedRaw = localStorage.getItem('bb_tv_library_cache');
+        if (cachedRaw) {
+          const cachedTracks = JSON.parse(cachedRaw);
+          if (Array.isArray(cachedTracks) && cachedTracks.length > 0) {
+            libraryTracks = cachedTracks;
+            audioTracks = libraryTracks.filter(isAudio);
+            videoTracks = libraryTracks.filter(isVideo);
+            photoTracks = libraryTracks.filter(isPhoto);
+
+            const musicCounter = document.getElementById('music-counter');
+            const videoCounter = document.getElementById('video-counter');
+            const photosCounter = document.getElementById('photos-counter');
+            if (musicCounter) musicCounter.textContent = audioTracks.length + ' faixas';
+            if (videoCounter) videoCounter.textContent = videoTracks.length + ' vídeos';
+            if (photosCounter) photosCounter.textContent = photoTracks.length + ' fotos';
+
+            renderMusicGrid();
+            renderVideoGrid(videoTracks);
+            renderPhotosGrid();
+          }
+        }
+      } catch (e) {
+        console.warn('Erro ao ler cache de biblioteca:', e);
+      }
+
+      // 2. Fresh Network Fetch in Background
+      try {
+        const cachedEtag = localStorage.getItem('bb_tv_library_etag');
+        const headers = {};
+        if (cachedEtag) headers['If-None-Match'] = cachedEtag;
+
+        const res = await fetch('/api/library', { headers });
+        if (res.status === 304) {
+          // Dados no cache local já estão atualizados
+          return;
+        }
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+
+        const newEtag = res.headers.get('ETag');
+        if (newEtag) localStorage.setItem('bb_tv_library_etag', newEtag);
+
         libraryTracks = await res.json();
-        
+        try {
+          localStorage.setItem('bb_tv_library_cache', JSON.stringify(libraryTracks));
+        } catch (e) {}
+
         audioTracks = libraryTracks.filter(isAudio);
         videoTracks = libraryTracks.filter(isVideo);
         photoTracks = libraryTracks.filter(isPhoto);
@@ -1704,7 +1811,7 @@ export function getTvWebHtml(serverIp: string, serverPort: number): string {
         renderVideoGrid(videoTracks);
         renderPhotosGrid();
       } catch (e) {
-        console.error(e);
+        console.error('Failed to load fresh library:', e);
       }
     }
 
@@ -1727,7 +1834,7 @@ export function getTvWebHtml(serverIp: string, serverPort: number): string {
              tabindex="0" 
              data-track-uuid="\${t.uuid}">
           <div class="media-cover">
-            <img src="/api/cover/\${t.uuid}" alt="\${escapeHtml(t.title)}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">
+            <img src="/api/cover/\${t.uuid}" alt="\${escapeHtml(t.title)}" loading="lazy" decoding="async" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">
             <span class="media-cover-placeholder" style="display:none;">🎵</span>
           </div>
           <div class="media-title">\${escapeHtml(t.title || 'Faixa')}</div>
@@ -1849,7 +1956,7 @@ export function getTvWebHtml(serverIp: string, serverPort: number): string {
       grid.innerHTML = videos.map(v => \`
         <div class="media-card" tabindex="0" data-video-uuid="\${v.uuid}" data-video-title="\${escapeHtml(v.title || 'Vídeo')}">
           <div class="media-cover" style="aspect-ratio: 16/9;">
-            <img src="/api/cover/\${v.uuid}" alt="\${escapeHtml(v.title)}" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">
+            <img src="/api/cover/\${v.uuid}" alt="\${escapeHtml(v.title)}" loading="lazy" decoding="async" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';">
             <span class="media-cover-placeholder" style="display:none;">🎬</span>
           </div>
           <div class="media-title">\${escapeHtml(v.title || 'Vídeo')}</div>
@@ -1961,14 +2068,20 @@ export function getTvWebHtml(serverIp: string, serverPort: number): string {
       }
     }
 
-    // Initial Load
-    document.addEventListener('DOMContentLoaded', () => {
+    // Single-pass Initial Load with Channel Scroll listener
+    let isAppInitialized = false;
+    function initApp() {
+      if (isAppInitialized) return;
+      isAppInitialized = true;
+      setupChannelScroll();
       loadIptv();
       loadLibrary();
-    });
-    if (document.readyState === 'interactive' || document.readyState === 'complete') {
-      loadIptv();
-      loadLibrary();
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initApp);
+    } else {
+      initApp();
     }
   </script>
 </body>

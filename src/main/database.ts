@@ -82,6 +82,7 @@ db.exec(`
     is_favorite INTEGER DEFAULT 0,
     is_hidden INTEGER DEFAULT 0,
     hidden_folder_id TEXT DEFAULT NULL,
+    media_folder_id TEXT DEFAULT NULL,
     description TEXT,
     lyrics TEXT
   );
@@ -119,6 +120,13 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS hidden_folders (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS media_folders (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -188,6 +196,12 @@ try {
   if (!hasLyrics) {
     db.exec('ALTER TABLE tracks ADD COLUMN lyrics TEXT');
     console.log('Migrated DB: added lyrics column');
+  }
+
+  const hasMediaFolder = tableInfo.some(col => col.name === 'media_folder_id');
+  if (!hasMediaFolder) {
+    db.exec('ALTER TABLE tracks ADD COLUMN media_folder_id TEXT DEFAULT NULL');
+    console.log('Migrated DB: added media_folder_id column');
   }
 
   // Backfill mimetype and kind for existing tracks
@@ -312,6 +326,7 @@ export interface DBTrack {
   is_favorite?: number;
   is_hidden?: number;
   hidden_folder_id?: string | null;
+  media_folder_id?: string | null;
   description?: string;
   lyrics?: string;
 }
@@ -319,6 +334,14 @@ export interface DBTrack {
 export interface HiddenFolder {
   id: string;
   name: string;
+  created_at?: string;
+  trackCount?: number;
+}
+
+export interface MediaFolder {
+  id: string;
+  name: string;
+  type: 'music' | 'video';
   created_at?: string;
   trackCount?: number;
 }
@@ -492,7 +515,7 @@ export const dbOps = {
   },
 
   getTrackByPath: (filePath: string) => {
-    const track = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, mimetype, kind, cover, duration, is_favorite, is_hidden, hidden_folder_id as hiddenFolderId, description, lyrics FROM tracks WHERE file_path = ?').get(filePath) as any;
+    const track = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, mimetype, kind, cover, duration, is_favorite, is_hidden, hidden_folder_id as hiddenFolderId, media_folder_id as mediaFolderId, description, lyrics FROM tracks WHERE file_path = ?').get(filePath) as any;
     if (track && track.cover) {
       track.cover = formatCoverUrl(track.cover);
     }
@@ -641,9 +664,11 @@ export const dbOps = {
     for (const [key, value] of Object.entries(data)) {
       if (key === 'hiddenFolderId') {
         cleanData['hidden_folder_id'] = value;
+      } else if (key === 'mediaFolderId') {
+        cleanData['media_folder_id'] = value;
       } else if (key === 'filePath') {
         cleanData['file_path'] = value;
-      } else if (['title', 'artist', 'album', 'format', 'mimetype', 'kind', 'cover', 'duration', 'is_favorite', 'is_hidden', 'hidden_folder_id', 'description', 'lyrics'].includes(key)) {
+      } else if (['title', 'artist', 'album', 'format', 'mimetype', 'kind', 'cover', 'duration', 'is_favorite', 'is_hidden', 'hidden_folder_id', 'media_folder_id', 'description', 'lyrics'].includes(key)) {
         cleanData[key] = value;
       }
     }
@@ -655,7 +680,7 @@ export const dbOps = {
 
   getPlaylistTracks: (playlistId: string) => {
     const tracks = db.prepare(`
-      SELECT t.uuid, t.title, t.artist, t.album, t.file_path as filePath, t.format, t.mimetype, t.kind, t.cover, t.duration, t.is_favorite, t.is_hidden, t.hidden_folder_id as hiddenFolderId, t.description, t.lyrics
+      SELECT t.uuid, t.title, t.artist, t.album, t.file_path as filePath, t.format, t.mimetype, t.kind, t.cover, t.duration, t.is_favorite, t.is_hidden, t.hidden_folder_id as hiddenFolderId, t.media_folder_id as mediaFolderId, t.description, t.lyrics
       FROM tracks t
       JOIN playlist_tracks pt ON t.uuid = pt.track_uuid
       WHERE pt.playlist_id = ? AND (t.is_hidden = 0 OR t.is_hidden IS NULL)
@@ -674,8 +699,8 @@ export const dbOps = {
 
   getAllTracks: (includeHidden = false) => {
     const query = includeHidden
-      ? 'SELECT uuid, title, artist, album, file_path as filePath, format, mimetype, kind, cover, duration, is_favorite, is_hidden, hidden_folder_id as hiddenFolderId, description, lyrics FROM tracks'
-      : 'SELECT uuid, title, artist, album, file_path as filePath, format, mimetype, kind, cover, duration, is_favorite, is_hidden, hidden_folder_id as hiddenFolderId, description, lyrics FROM tracks WHERE is_hidden = 0 OR is_hidden IS NULL';
+      ? 'SELECT uuid, title, artist, album, file_path as filePath, format, mimetype, kind, cover, duration, is_favorite, is_hidden, hidden_folder_id as hiddenFolderId, media_folder_id as mediaFolderId, description, lyrics FROM tracks'
+      : 'SELECT uuid, title, artist, album, file_path as filePath, format, mimetype, kind, cover, duration, is_favorite, is_hidden, hidden_folder_id as hiddenFolderId, media_folder_id as mediaFolderId, description, lyrics FROM tracks WHERE is_hidden = 0 OR is_hidden IS NULL';
     const tracks = db.prepare(query).all() as any[];
     tracks.forEach(t => {
       if (t.cover) t.cover = formatCoverUrl(t.cover);
@@ -684,7 +709,7 @@ export const dbOps = {
   },
 
   getFavoriteTracks: () => {
-    const tracks = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, mimetype, kind, cover, duration, is_favorite, is_hidden, hidden_folder_id as hiddenFolderId, description, lyrics FROM tracks WHERE is_favorite = 1 AND (is_hidden = 0 OR is_hidden IS NULL)').all() as any[];
+    const tracks = db.prepare('SELECT uuid, title, artist, album, file_path as filePath, format, mimetype, kind, cover, duration, is_favorite, is_hidden, hidden_folder_id as hiddenFolderId, media_folder_id as mediaFolderId, description, lyrics FROM tracks WHERE is_favorite = 1 AND (is_hidden = 0 OR is_hidden IS NULL)').all() as any[];
     tracks.forEach(t => {
       if (t.cover) t.cover = formatCoverUrl(t.cover);
     });
@@ -697,7 +722,7 @@ export const dbOps = {
 
   // Hidden Files & Folders
   getHiddenTracks: (folderId?: string | null) => {
-    let query = 'SELECT uuid, title, artist, album, file_path as filePath, format, mimetype, kind, cover, duration, is_favorite, is_hidden, hidden_folder_id as hiddenFolderId, description, lyrics FROM tracks WHERE is_hidden = 1';
+    let query = 'SELECT uuid, title, artist, album, file_path as filePath, format, mimetype, kind, cover, duration, is_favorite, is_hidden, hidden_folder_id as hiddenFolderId, media_folder_id as mediaFolderId, description, lyrics FROM tracks WHERE is_hidden = 1';
     const params: any[] = [];
     if (folderId === 'all') {
       // All hidden tracks regardless of folder
@@ -756,6 +781,46 @@ export const dbOps = {
     if (!uuids || uuids.length === 0) return { changes: 0 };
     const placeholders = uuids.map(() => '?').join(',');
     return db.prepare(`UPDATE tracks SET is_hidden = 0, hidden_folder_id = NULL WHERE uuid IN (${placeholders})`).run(...uuids);
+  },
+
+  // Media Folders (Music & Video Organization)
+  getMediaFolders: (type: 'music' | 'video') => {
+    return db.prepare(`
+      SELECT f.*, 
+             (SELECT COUNT(*) FROM tracks 
+              WHERE (is_hidden = 0 OR is_hidden IS NULL) 
+                AND media_folder_id = f.id) as trackCount
+      FROM media_folders f
+      WHERE f.type = ?
+      ORDER BY f.name COLLATE NOCASE ASC
+    `).all(type) as MediaFolder[];
+  },
+
+  createMediaFolder: (name: string, type: 'music' | 'video') => {
+    const id = uuidv4();
+    db.prepare('INSERT INTO media_folders (id, name, type) VALUES (?, ?, ?)').run(id, name, type);
+    return { id, name, type };
+  },
+
+  renameMediaFolder: (id: string, name: string) => {
+    return db.prepare('UPDATE media_folders SET name = ? WHERE id = ?').run(name, id);
+  },
+
+  deleteMediaFolder: (id: string) => {
+    db.prepare('UPDATE tracks SET media_folder_id = NULL WHERE media_folder_id = ?').run(id);
+    return db.prepare('DELETE FROM media_folders WHERE id = ?').run(id);
+  },
+
+  moveTrackToMediaFolder: (trackUuid: string, folderId: string | null) => {
+    const cleanFolderId = (folderId && folderId !== 'null' && folderId !== '') ? folderId : null;
+    return db.prepare('UPDATE tracks SET media_folder_id = ? WHERE uuid = ?').run(cleanFolderId, trackUuid);
+  },
+
+  moveTracksToMediaFolder: (uuids: string[], folderId: string | null) => {
+    if (!uuids || uuids.length === 0) return { changes: 0 };
+    const cleanFolderId = (folderId && folderId !== 'null' && folderId !== '') ? folderId : null;
+    const placeholders = uuids.map(() => '?').join(',');
+    return db.prepare(`UPDATE tracks SET media_folder_id = ? WHERE uuid IN (${placeholders})`).run(cleanFolderId, ...uuids);
   },
 
   getSetting: (key: string) => {

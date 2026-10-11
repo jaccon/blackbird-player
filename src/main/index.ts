@@ -15,7 +15,7 @@ import { dbOps } from './database'
 import { parseM3uFile, parseM3uUrl } from './m3u'
 import { startIptvScan, cancelIptvScan, isIptvScanInProgress } from './iptv-scanner'
 
-import { startServer, stopServer, getServerStatus } from './server'
+import { startServer, stopServer, getServerStatus, invalidateServerCache } from './server'
 import { v4 as uuidv4 } from 'uuid'
 import ChromecastAPI from 'chromecast-api'
 import localIpUrl from 'local-ip-url'
@@ -47,14 +47,36 @@ process.on('unhandledRejection', (reason) => {
 })
 let castMediaServer: http.Server | null = null
 let castMediaPort = 0
+let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
-  // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  // Determine initial background color from saved theme or default
+  let initialBgColor = '#050505'
+  try {
+    const savedThemeName = dbOps.getSetting('selected-theme') || 'Blackbird'
+    const themes = dbOps.getThemes()
+    const foundTheme = themes.find((t: any) => t.name === savedThemeName)
+    if (foundTheme && foundTheme.variables) {
+      initialBgColor = foundTheme.variables['--sidebar-bg'] || foundTheme.variables['--bg-dark'] || initialBgColor
+    }
+  } catch {}
+
+  // Create the browser window with seamless theme titlebar.
+  const win = new BrowserWindow({
     width: 1200,
     height: 800,
     show: false,
     autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    ...(process.platform !== 'darwin' ? {
+      titleBarOverlay: {
+        color: initialBgColor,
+        symbolColor: '#ffffff',
+        height: 36
+      }
+    } : {}),
+    trafficLightPosition: { x: 16, y: 16 },
+    backgroundColor: initialBgColor,
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -63,17 +85,19 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  mainWindow = win
+
+  win.on('ready-to-show', () => {
+    win.show()
   })
 
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
   // Set Referer for YouTube Embeds in production
-  mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
+  win.webContents.session.webRequest.onBeforeSendHeaders(
     { urls: ['https://www.youtube.com/*', 'https://*.youtube.com/*', 'https://*.ytimg.com/*', 'https://*.youtube-nocookie.com/*'] },
     (details, callback) => {
       const url = new URL(details.url)
@@ -89,9 +113,9 @@ function createWindow(): void {
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
@@ -449,6 +473,12 @@ app.whenReady().then(async () => {
     return dbOps.hideTracks(args?.uuids || [], args?.folderId || null)
   })
   ipcMain.handle('unhide-tracks', (_, uuids: string[]) => dbOps.unhideTracks(uuids))
+  ipcMain.handle('get-media-folders', (_, type: 'music' | 'video') => dbOps.getMediaFolders(type))
+  ipcMain.handle('create-media-folder', (_, { name, type }: { name: string; type: 'music' | 'video' }) => dbOps.createMediaFolder(name, type))
+  ipcMain.handle('rename-media-folder', (_, { id, name }: { id: string; name: string }) => dbOps.renameMediaFolder(id, name))
+  ipcMain.handle('delete-media-folder', (_, folderId: string) => dbOps.deleteMediaFolder(folderId))
+  ipcMain.handle('move-track-to-media-folder', (_, { trackUuid, folderId }: { trackUuid: string; folderId: string | null }) => dbOps.moveTrackToMediaFolder(trackUuid, folderId))
+  ipcMain.handle('move-tracks-to-media-folder', (_, { trackUuids, folderId }: { trackUuids: string[]; folderId: string | null }) => dbOps.moveTracksToMediaFolder(trackUuids, folderId))
   ipcMain.handle('get-track-cover', async (_, { uuid, filePath }) => {
     try {
       const metadata = await getMetadata(filePath, false)
@@ -462,12 +492,31 @@ app.whenReady().then(async () => {
     return null
   })
   ipcMain.handle('get-themes', () => dbOps.getThemes())
+  ipcMain.handle('set-window-theme-color', (_e, { bgColor, symbolColor }: { bgColor: string; symbolColor?: string }) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        mainWindow.setBackgroundColor(bgColor)
+        if (process.platform === 'win32' && (mainWindow as any).setTitleBarOverlay) {
+          (mainWindow as any).setTitleBarOverlay({
+            color: bgColor,
+            symbolColor: symbolColor || '#ffffff'
+          })
+        }
+      } catch (err) {
+        console.warn('Failed to set window theme color:', err)
+      }
+    }
+    try {
+      dbOps.setSetting('window-theme-bg', bgColor)
+    } catch {}
+  })
 
   // M3U IPC Handlers
   ipcMain.handle('import-m3u-file', async (_, filePath: string) => {
     try {
       const channels = await parseM3uFile(filePath);
       dbOps.importM3UChannels(channels);
+      invalidateServerCache('iptv');
       return channels.length;
     } catch (err: any) {
       console.error('[M3U] Error importing file:', err);
@@ -478,6 +527,7 @@ app.whenReady().then(async () => {
     try {
       const channels = await parseM3uUrl(url);
       dbOps.importM3UChannels(channels);
+      invalidateServerCache('iptv');
       return channels.length;
     } catch (err: any) {
       console.error('[M3U] Error importing URL:', err);
@@ -485,12 +535,22 @@ app.whenReady().then(async () => {
     }
   });
   ipcMain.handle('get-m3u-channels', () => dbOps.getM3UChannels());
-  ipcMain.handle('toggle-m3u-favorite', (_, id: string) => dbOps.toggleM3UFavorite(id));
-  ipcMain.handle('delete-m3u-channel', (_, id: string) => dbOps.deleteM3UChannel(id));
+  ipcMain.handle('toggle-m3u-favorite', (_, id: string) => {
+    const res = dbOps.toggleM3UFavorite(id);
+    invalidateServerCache('iptv');
+    return res;
+  });
+  ipcMain.handle('delete-m3u-channel', (_, id: string) => {
+    const res = dbOps.deleteM3UChannel(id);
+    invalidateServerCache('iptv');
+    return res;
+  });
   ipcMain.handle('start-m3u-scan', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) throw new Error('No browser window found for IPC request');
-    return await startIptvScan(win);
+    const res = await startIptvScan(win);
+    invalidateServerCache('iptv');
+    return res;
   });
   ipcMain.handle('cancel-m3u-scan', () => cancelIptvScan());
   ipcMain.handle('is-m3u-scan-in-progress', () => isIptvScanInProgress());
@@ -505,7 +565,11 @@ app.whenReady().then(async () => {
     if (filePath.startsWith('http')) return {}
     return await getMetadata(filePath, false)
   })
-  ipcMain.handle('upsert-track', (_, track: any) => dbOps.upsertTrack(track))
+  ipcMain.handle('upsert-track', (_, track: any) => {
+    const res = dbOps.upsertTrack(track);
+    invalidateServerCache('library');
+    return res;
+  });
   ipcMain.handle('get-setting', (_, key: string) => dbOps.getSetting(key))
   ipcMain.handle('set-setting', (_, { key, value }: { key: string, value: string }) => dbOps.setSetting(key, value))
 

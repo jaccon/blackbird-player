@@ -16,8 +16,17 @@ export interface TrackMetadata {
   is_favorite?: number;
   is_hidden?: number;
   hiddenFolderId?: string | null;
+  mediaFolderId?: string | null;
   description?: string;
   lyrics?: string;
+}
+
+export interface MediaFolder {
+  id: string;
+  name: string;
+  type: 'music' | 'video';
+  created_at?: string;
+  trackCount?: number;
 }
 
 export interface PluginInfo {
@@ -175,6 +184,11 @@ let btnNewPlaylist: HTMLElement
 let isVaultUnlocked = false
 let currentHiddenFolderId: string | null = null
 
+// Media Folders State (Musics & All Videos)
+let currentMusicFolderId: string | null = null
+let currentVideoFolderId: string | null = null
+let mediaFilterMode: 'all' | 'flat' = 'all'
+
 // Modal Elements
 let modalContainer: HTMLElement
 let playlistModal: HTMLElement
@@ -208,6 +222,22 @@ let addToPlaylistItems: HTMLElement
 let inputQuickPlaylistName: HTMLInputElement
 let btnQuickCreateAndAdd: HTMLElement
 let pendingAddToPlaylistUuids: string[] = []
+
+// Media Folder Modal Elements
+let mediaFolderModal: HTMLElement
+let mediaFolderModalTitleText: HTMLElement
+let inputMediaFolderName: HTMLInputElement
+let btnSaveMediaFolder: HTMLElement
+let mediaFolderModalResolve: ((value: string | null) => void) | null = null
+
+let moveToFolderModal: HTMLElement
+let moveToFolderTitle: HTMLElement
+let moveToFolderSubtitle: HTMLElement
+let inputQuickMediaFolderName: HTMLInputElement
+let btnQuickCreateMediaFolder: HTMLElement
+let moveToFolderItems: HTMLElement
+let pendingMoveTracksUuids: string[] = []
+let pendingMoveMediaType: 'music' | 'video' = 'music'
 
 // Radio Modal Elements
 let radioModal: HTMLElement
@@ -347,6 +377,78 @@ async function init(): Promise<void> {
     inputQuickPlaylistName?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         btnQuickCreateAndAdd?.click()
+      }
+    })
+
+    // Media Folder Modals Initialization
+    mediaFolderModal = document.getElementById('media-folder-modal')!
+    mediaFolderModalTitleText = document.getElementById('media-folder-modal-title-text')!
+    inputMediaFolderName = document.getElementById('input-media-folder-name') as HTMLInputElement
+    btnSaveMediaFolder = document.getElementById('btn-save-media-folder')!
+
+    moveToFolderModal = document.getElementById('move-to-folder-modal')!
+    moveToFolderTitle = document.getElementById('move-to-folder-title')!
+    moveToFolderSubtitle = document.getElementById('move-to-folder-subtitle')!
+    inputQuickMediaFolderName = document.getElementById('input-quick-media-folder-name') as HTMLInputElement
+    btnQuickCreateMediaFolder = document.getElementById('btn-quick-create-media-folder')!
+    moveToFolderItems = document.getElementById('move-to-folder-items')!
+
+    btnSaveMediaFolder?.addEventListener('click', () => {
+      const val = inputMediaFolderName.value.trim()
+      if (val && mediaFolderModalResolve) {
+        const resolve = mediaFolderModalResolve
+        mediaFolderModalResolve = null
+        closeModal()
+        resolve(val)
+      }
+    })
+
+    inputMediaFolderName?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        btnSaveMediaFolder?.click()
+      } else if (e.key === 'Escape') {
+        closeModal()
+      }
+    })
+
+    btnQuickCreateMediaFolder?.addEventListener('click', async () => {
+      const name = inputQuickMediaFolderName.value.trim()
+      if (!name) return
+      if (pendingMoveTracksUuids.length === 0) return
+
+      try {
+        const newFolder = await (window as any).api.createMediaFolder(name, pendingMoveMediaType)
+        if (pendingMoveTracksUuids.length === 1) {
+          await (window as any).api.moveTrackToMediaFolder(pendingMoveTracksUuids[0], newFolder.id)
+          const trk = library.find(t => t.uuid === pendingMoveTracksUuids[0])
+          if (trk) trk.mediaFolderId = newFolder.id
+        } else {
+          await (window as any).api.moveTracksToMediaFolder(pendingMoveTracksUuids, newFolder.id)
+          library.forEach(t => {
+            if (pendingMoveTracksUuids.includes(t.uuid)) t.mediaFolderId = newFolder.id
+          })
+          selectedTrackUuids.clear()
+        }
+
+        try {
+          localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+        } catch {}
+
+        closeModal()
+        if (typeof (window as any).showRadioToast === 'function') {
+          (window as any).showRadioToast(`Pasta "${name}" criada e ${pendingMoveTracksUuids.length} arquivo(s) movido(s)!`)
+        }
+
+        const allMediaTracks = pendingMoveMediaType === 'music' ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+        await renderTrackList(allMediaTracks, lastListViewTitle)
+      } catch (e: any) {
+        alert(`Erro ao criar pasta: ${e.message}`)
+      }
+    })
+
+    inputQuickMediaFolderName?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        btnQuickCreateMediaFolder?.click()
       }
     })
 
@@ -611,7 +713,31 @@ async function init(): Promise<void> {
 }
 
 async function loadLibrary(render: boolean = false): Promise<void> {
+  // Instant Cache Load (0ms)
+  if (!library || library.length === 0) {
+    try {
+      const cached = localStorage.getItem('blackbird_library_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          library = parsed;
+          const mediaOnly = library.filter(isAudioTrack);
+          if (currentPlaylist.length === 0) {
+            currentPlaylist = [...mediaOnly];
+          }
+          if (render) {
+            renderHome();
+          }
+        }
+      }
+    } catch {}
+  }
+
   library = await (window as any).api.getLibrary()
+  try {
+    localStorage.setItem('blackbird_library_cache', JSON.stringify(library));
+  } catch {}
+
   const mediaOnly = library.filter(isAudioTrack)
   if (currentPlaylist.length === 0) {
     currentPlaylist = [...mediaOnly];
@@ -640,7 +766,14 @@ async function setupThemes(): Promise<void> {
     themeSelector.innerHTML = availableThemes.map(t => `<option value="${t.name}" style="background:var(--sidebar-bg); color:var(--text-main);">${t.name}</option>`).join('')
   }
   
-  const savedTheme = localStorage.getItem('selected-theme') || 'Blackbird'
+  let savedTheme = localStorage.getItem('selected-theme')
+  if (!savedTheme && window.api && (window.api as any).getSetting) {
+    try {
+      savedTheme = await (window.api as any).getSetting('selected-theme')
+    } catch {}
+  }
+  if (!savedTheme) savedTheme = 'Blackbird'
+
   const theme = availableThemes.find(t => t.name === savedTheme)
   if (theme) {
     applyTheme(theme)
@@ -664,6 +797,16 @@ function applyTheme(theme: Theme): void {
   Object.entries(theme.variables).forEach(([key, value]) => {
     root.style.setProperty(key, value)
   })
+
+  // Synchronize window background and title bar area color
+  const bg = theme.variables['--bg-dark'] || theme.variables['--sidebar-bg'] || '#09090b'
+  const text = theme.variables['--text-main'] || '#ffffff'
+  if (window.api && (window.api as any).setWindowThemeColor) {
+    (window.api as any).setWindowThemeColor(bg, text)
+  }
+  if (window.api && (window.api as any).setSetting) {
+    (window.api as any).setSetting('selected-theme', theme.name)
+  }
 }
 
 async function loadPlaylists(): Promise<void> {
@@ -741,6 +884,8 @@ function closeModal(): void {
   modalContainer.classList.add('hidden')
   playlistModal.classList.add('hidden')
   addToPlaylistModal?.classList.add('hidden')
+  mediaFolderModal?.classList.add('hidden')
+  moveToFolderModal?.classList.add('hidden')
   editModal.classList.add('hidden')
   youtubeModal.classList.add('hidden')
   castModal.classList.add('hidden')
@@ -752,11 +897,139 @@ function closeModal(): void {
   
   inputPlaylistName.value = ''
   if (inputQuickPlaylistName) inputQuickPlaylistName.value = ''
+  if (inputMediaFolderName) inputMediaFolderName.value = ''
+  if (inputQuickMediaFolderName) inputQuickMediaFolderName.value = ''
   inputYTUrl.value = ''
   inputRadioName.value = ''
   inputRadioUrl.value = ''
   checkRadioShare.checked = false
   pendingAddToPlaylistUuids = []
+  if (mediaFolderModalResolve) {
+    mediaFolderModalResolve(null)
+    mediaFolderModalResolve = null
+  }
+  pendingMoveTracksUuids = []
+}
+
+function promptMediaFolderName(title: string, defaultValue: string = '', confirmText: string = 'Salvar'): Promise<string | null> {
+  return new Promise((resolve) => {
+    mediaFolderModalResolve = resolve
+    modalContainer.classList.remove('hidden')
+    mediaFolderModal.classList.remove('hidden')
+    playlistModal.classList.add('hidden')
+    editModal.classList.add('hidden')
+    addToPlaylistModal?.classList.add('hidden')
+    moveToFolderModal?.classList.add('hidden')
+    
+    mediaFolderModalTitleText.textContent = title
+    inputMediaFolderName.value = defaultValue
+    btnSaveMediaFolder.textContent = confirmText
+    
+    setTimeout(() => {
+      inputMediaFolderName.focus()
+      inputMediaFolderName.select()
+    }, 50)
+  })
+}
+
+async function openMoveToFolderModal(uuids: string[], type: 'music' | 'video'): Promise<void> {
+  pendingMoveTracksUuids = uuids
+  pendingMoveMediaType = type
+  
+  let folders: MediaFolder[] = []
+  try {
+    folders = await (window as any).api.getMediaFolders(type)
+  } catch (err) {
+    console.error('Failed to get media folders for modal:', err)
+  }
+
+  moveToFolderTitle.textContent = uuids.length === 1 ? 'Organizar em Pasta' : `Organizar ${uuids.length} Arquivos em Pasta`
+  const singleTrack = uuids.length === 1 ? library.find(t => t.uuid === uuids[0]) : null
+  moveToFolderSubtitle.textContent = singleTrack 
+    ? `Mover "${singleTrack.title || singleTrack.fileName}" para:` 
+    : `Mover ${uuids.length} arquivos selecionados para:`
+
+  let html = `
+    <div class="move-folder-item" data-folder-id="" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-radius: var(--radius-md); background: var(--bg-card); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="width: 32px; height: 32px; border-radius: 8px; background: var(--glass); display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+          <i data-lucide="folder-x" style="width: 16px; height: 16px;"></i>
+        </div>
+        <div>
+          <div style="font-size: 13px; font-weight: 600; color: var(--text-main);">Sem Pasta / Raiz</div>
+          <div style="font-size: 11px; color: var(--text-muted);">Desvincular de qualquer pasta</div>
+        </div>
+      </div>
+      <i data-lucide="chevron-right" style="width: 16px; height: 16px; color: var(--text-muted);"></i>
+    </div>
+  `
+
+  folders.forEach(f => {
+    html += `
+      <div class="move-folder-item" data-folder-id="${f.id}" data-folder-name="${f.name}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-radius: var(--radius-md); background: var(--bg-card); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: var(--glass); display: flex; align-items: center; justify-content: center; color: var(--accent);">
+            <i data-lucide="folder" style="width: 16px; height: 16px;"></i>
+          </div>
+          <div>
+            <div style="font-size: 13px; font-weight: 600; color: var(--text-main);">${f.name}</div>
+            <div style="font-size: 11px; color: var(--text-muted);">${f.trackCount || 0} arquivos</div>
+          </div>
+        </div>
+        <i data-lucide="chevron-right" style="width: 16px; height: 16px; color: var(--text-muted);"></i>
+      </div>
+    `
+  })
+
+  moveToFolderItems.innerHTML = html
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  moveToFolderItems.querySelectorAll('.move-folder-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      const folderId = item.getAttribute('data-folder-id') || null
+      const folderName = item.getAttribute('data-folder-name') || 'Raiz (Sem Pasta)'
+      
+      try {
+        if (pendingMoveTracksUuids.length === 1) {
+          await (window as any).api.moveTrackToMediaFolder(pendingMoveTracksUuids[0], folderId)
+          const trk = library.find(t => t.uuid === pendingMoveTracksUuids[0])
+          if (trk) trk.mediaFolderId = folderId
+        } else {
+          await (window as any).api.moveTracksToMediaFolder(pendingMoveTracksUuids, folderId)
+          library.forEach(t => {
+            if (pendingMoveTracksUuids.includes(t.uuid)) t.mediaFolderId = folderId
+          })
+          selectedTrackUuids.clear()
+        }
+
+        try {
+          localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+        } catch {}
+
+        if (typeof (window as any).showRadioToast === 'function') {
+          (window as any).showRadioToast(
+            pendingMoveTracksUuids.length === 1
+              ? `Arquivo movido para "${folderName}"!`
+              : `${pendingMoveTracksUuids.length} arquivos movidos para "${folderName}"!`
+          )
+        }
+
+        closeModal()
+
+        const allMediaTracks = pendingMoveMediaType === 'music' ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+        await renderTrackList(allMediaTracks, lastListViewTitle)
+      } catch (err) {
+        console.error('Failed to move tracks to folder:', err)
+      }
+    })
+  })
+
+  modalContainer.classList.remove('hidden')
+  moveToFolderModal.classList.remove('hidden')
+  playlistModal.classList.add('hidden')
+  editModal.classList.add('hidden')
+  mediaFolderModal?.classList.add('hidden')
+  addToPlaylistModal?.classList.add('hidden')
 }
 
 function attachListeners(): void {
@@ -772,10 +1045,17 @@ function attachListeners(): void {
   
   btnAllSongs.addEventListener('click', () => {
     selectedTrackUuids.clear();
-    setActiveNav('btn-all-songs');
+    setActiveNav('btn-music-tracks');
+    currentMusicFolderId = null;
+    mediaFilterMode = 'all';
     const filtered = library.filter(isAudioTrack);
     renderTrackList(filtered, 'Musics');
   });
+
+  document.getElementById('btn-music-tracks')?.addEventListener('click', () => {
+    btnAllSongs.click();
+  });
+
   btnAlbums.addEventListener('click', () => {
     selectedTrackUuids.clear()
     setActiveNav('btn-albums')
@@ -790,6 +1070,8 @@ function attachListeners(): void {
   btnAllVideos.addEventListener('click', () => {
     selectedTrackUuids.clear()
     setActiveNav('btn-all-videos')
+    currentVideoFolderId = null;
+    mediaFilterMode = 'all';
     const videos = library.filter(isVideoTrack)
     renderTrackList(videos, 'All Videos')
   })
@@ -1025,6 +1307,14 @@ function setActiveNav(target: string | HTMLElement): void {
   const element = typeof target === 'string' ? document.getElementById(target) : target
   if (element) {
     element.classList.add('active')
+
+    // Highlight parent Musics item if inside music sub-items
+    if (element.id === 'btn-albums' || element.id === 'btn-artists' || element.id === 'btn-music-tracks' || element.id === 'btn-all-songs') {
+      document.getElementById('btn-all-songs')?.classList.add('parent-active')
+    } else {
+      document.getElementById('btn-all-songs')?.classList.remove('parent-active')
+    }
+
     if (element.id !== 'btn-hidden-files') {
       isVaultUnlocked = false
     }
@@ -1299,6 +1589,11 @@ async function handleQuickHideTrack(uuid: string): Promise<void> {
   }
 }
 ;(window as any).handleQuickHideTrack = handleQuickHideTrack
+
+async function handleMoveTrackToFolder(trackUuid: string, type: 'music' | 'video'): Promise<void> {
+  await openMoveToFolderModal([trackUuid], type)
+}
+;(window as any).handleMoveTrackToFolder = handleMoveTrackToFolder
 
 async function handleToggleListFavorite(trackId: string): Promise<void> {
   const libTrack = library.find(t => t.uuid === trackId)
@@ -2979,10 +3274,46 @@ function renderPlaylistsScreen(): void {
   })
 }
 
-function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): void {
+async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): Promise<void> {
+  const isAlbumView = title.startsWith('Album:')
+  const isArtistView = title.startsWith('Artist:')
+  const isMusicView = title === 'Musics' || title.startsWith('Music Folder:')
+  const isVideoView = title === 'All Videos' || title.startsWith('Video Folder:')
+  const isMusicSection = isMusicView || isAlbumView || isArtistView
+  const mediaType: 'music' | 'video' | null = isMusicView ? 'music' : isVideoView ? 'video' : null
+
+  let mediaFolders: MediaFolder[] = []
+  if (mediaType) {
+    try {
+      mediaFolders = await (window as any).api.getMediaFolders(mediaType)
+    } catch (e) {
+      console.error('Failed to get media folders:', e)
+    }
+  }
+
+  const activeFolderId = isMusicView ? currentMusicFolderId : isVideoView ? currentVideoFolderId : null
+  const currentFolder = activeFolderId ? mediaFolders.find(f => f.id === activeFolderId) : null
+  if (activeFolderId && !currentFolder) {
+    if (isMusicView) currentMusicFolderId = null
+    if (isVideoView) currentVideoFolderId = null
+  }
+  const effectiveFolderId = currentFolder ? currentFolder.id : null
+
+  // Determine tracks to display
+  let displayedTracks = tracks
+  if (effectiveFolderId) {
+    displayedTracks = tracks.filter(t => t.mediaFolderId === effectiveFolderId)
+  } else if (mediaType) {
+    if (mediaFilterMode === 'all') {
+      displayedTracks = tracks.filter(t => !t.mediaFolderId)
+    } else {
+      displayedTracks = tracks
+    }
+  }
+
   // If we already have a sidebarTrack, try to keep it if it's in the list
   if (sidebarTrack) {
-    const found = tracks.find(t => t.uuid === sidebarTrack?.uuid)
+    const found = displayedTracks.find(t => t.uuid === sidebarTrack?.uuid)
     if (found) {
       sidebarTrack = found
     }
@@ -2990,35 +3321,143 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
 
   // If no sidebarTrack or it wasn't found, pick a default
   if (!sidebarTrack) {
-    if (currentTrackIndex >= 0 && currentPlaylist === tracks) {
+    if (currentTrackIndex >= 0 && currentPlaylist === displayedTracks) {
       sidebarTrack = currentPlaylist[currentTrackIndex]
-    } else if (tracks.length > 0) {
-      sidebarTrack = tracks[0]
+    } else if (displayedTracks.length > 0) {
+      sidebarTrack = displayedTracks[0]
     }
   }
 
-  const totalDuration = tracks.reduce((acc, t) => acc + (t.duration || 0), 0)
+  const totalDuration = displayedTracks.reduce((acc, t) => acc + (t.duration || 0), 0)
+  const totalAllDuration = tracks.reduce((acc, t) => acc + (t.duration || 0), 0)
   const currentViewingPlaylistId = title.startsWith('Playlist:') 
     ? userPlaylists.find(p => `Playlist: ${p.name}` === title)?.id 
     : null
 
   contentView.innerHTML = `
     <div class="track-list-view">
-      <div class="view-header" style="display: flex; justify-content: space-between; align-items: flex-end;">
-        <div>
-          <h2 class="view-title">${title}</h2>
-          <p class="view-subtitle">${tracks.length} tracks available</p>
+      <!-- Music Section Navigation Tabs (Faixas & Pastas, Álbuns, Artistas) -->
+      ${isMusicSection ? `
+        <div class="music-nav-tabs">
+          <button class="music-nav-tab ${isMusicView ? 'active' : ''}" id="tab-music-tracks">
+            <i data-lucide="folder" style="width: 14px; height: 14px;"></i> Faixas & Pastas
+          </button>
+          <button class="music-nav-tab ${isAlbumView ? 'active' : ''}" id="tab-music-albums">
+            <i data-lucide="disc" style="width: 14px; height: 14px;"></i> Álbuns
+          </button>
+          <button class="music-nav-tab ${isArtistView ? 'active' : ''}" id="tab-music-artists">
+            <i data-lucide="mic" style="width: 14px; height: 14px;"></i> Artistas
+          </button>
         </div>
-        <div style="text-align: right;">
-           <p class="view-subtitle" style="font-weight: 600; color: var(--accent);">${formatTime(totalDuration)} total time</p>
+      ` : ''}
+
+      ${isAlbumView ? `
+        <div style="margin-bottom: 14px;">
+          <button class="btn-secondary" id="btn-back-to-albums" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 8px;">
+            <i data-lucide="arrow-left" style="width: 14px; height: 14px;"></i> Voltar para Álbuns
+          </button>
+        </div>
+      ` : ''}
+
+      ${isArtistView ? `
+        <div style="margin-bottom: 14px;">
+          <button class="btn-secondary" id="btn-back-to-artists" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: 8px;">
+            <i data-lucide="arrow-left" style="width: 14px; height: 14px;"></i> Voltar para Artistas
+          </button>
+        </div>
+      ` : ''}
+
+      <div class="view-header" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 14px; flex-wrap: wrap; gap: 14px;">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <h2 class="view-title" style="display: flex; align-items: center; gap: 10px;">
+            ${effectiveFolderId && currentFolder 
+              ? `<i data-lucide="folder-open" style="color: #ffaa00; width: 26px; height: 26px;"></i> ${currentFolder.name}` 
+              : isAlbumView
+                ? `<i data-lucide="disc" style="color: var(--accent); width: 26px; height: 26px;"></i> ${title.replace('Album: ', '')}`
+                : isArtistView
+                  ? `<i data-lucide="mic" style="color: var(--accent); width: 26px; height: 26px;"></i> ${title.replace('Artist: ', '')}`
+                  : `<i data-lucide="${isMusicView ? 'music' : isVideoView ? 'video' : 'disc'}" style="color: var(--accent); width: 26px; height: 26px;"></i> ${title}`
+            }
+          </h2>
+          <p class="view-subtitle">
+            ${effectiveFolderId && currentFolder 
+              ? `${displayedTracks.length} arquivos nesta pasta &bull; ${formatTime(totalDuration)} total`
+              : isAlbumView
+                ? `${displayedTracks.length} faixas neste álbum &bull; ${formatTime(totalDuration)} total`
+                : isArtistView
+                  ? `${displayedTracks.length} faixas deste artista &bull; ${formatTime(totalDuration)} total`
+                  : mediaType
+                    ? `${tracks.length} arquivos (${mediaFolders.length} pastas, ${displayedTracks.length} na raiz) &bull; ${formatTime(totalAllDuration)}`
+                    : `${displayedTracks.length} faixas disponíveis &bull; ${formatTime(totalDuration)}`
+            }
+          </p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          ${mediaType ? `
+            <button class="btn-primary" id="btn-new-media-folder" style="display: flex; align-items: center; gap: 6px; padding: 7px 15px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; background: #ffaa00; color: #000;">
+              <i data-lucide="folder-plus" style="width: 15px; height: 15px;"></i> Nova Pasta
+            </button>
+          ` : ''}
+          ${effectiveFolderId && currentFolder ? `
+            <button class="btn-secondary" id="btn-rename-active-folder" style="display: flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 8px; font-size: 13px; font-weight: 600;">
+              <i data-lucide="edit-2" style="width: 13px; height: 13px;"></i> Renomear Pasta
+            </button>
+            <button class="btn-secondary" id="btn-delete-active-folder" style="display: flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #ff4c4c;">
+              <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i> Excluir Pasta
+            </button>
+          ` : ''}
         </div>
       </div>
-      
+
+      <!-- File Manager Breadcrumb Bar & View Mode Switch (for Music & Video) -->
+      ${mediaType ? `
+        <div class="fm-breadcrumb-bar">
+          <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            <div class="fm-breadcrumb-item ${!effectiveFolderId ? 'active' : ''}" id="btn-breadcrumb-root" title="Ir para a pasta raiz (Arraste arquivos aqui para mover para a raiz)">
+              <i data-lucide="home" style="width: 14px; height: 14px;"></i>
+              <span>${isMusicView ? 'Músicas' : 'Vídeos'}</span>
+            </div>
+            ${effectiveFolderId && currentFolder ? `
+              <i data-lucide="chevron-right" style="width: 13px; height: 13px; color: var(--text-muted); opacity: 0.6;"></i>
+              <div class="fm-breadcrumb-item active" style="color: #ffaa00;">
+                <i data-lucide="folder" style="width: 14px; height: 14px;"></i>
+                <span>${currentFolder.name}</span>
+              </div>
+            ` : ''}
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 10px; margin-left: auto;">
+            ${!effectiveFolderId ? `
+              <div class="media-filter-tabs" style="margin: 0;">
+                <button class="media-filter-tab ${mediaFilterMode === 'all' ? 'active' : ''}" data-filter="all" title="Gerenciador: Pastas e arquivos na raiz">
+                  <i data-lucide="folder" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i>
+                  Pastas & Raiz (${mediaFolders.length} pastas)
+                </button>
+                <button class="media-filter-tab ${mediaFilterMode === 'flat' ? 'active' : ''}" data-filter="flat" title="Lista plana com todas as faixas">
+                  <i data-lucide="list" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i>
+                  Todas as Faixas (${tracks.length})
+                </button>
+              </div>
+            ` : `
+              <span style="font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="info" style="width: 13px; height: 13px; color: var(--accent);"></i>
+                Arraste arquivos para <strong>.. (Nível Superior)</strong> para mover para a raiz
+              </span>
+            `}
+          </div>
+        </div>
+      ` : ''}
+
       <div id="selection-bar" class="selection-bar ${selectedTrackUuids.size > 0 ? '' : 'hidden'}">
         <span id="selection-count">${selectedTrackUuids.size} tracks selected</span>
         <button class="btn-secondary small" id="btn-add-selected-to-playlist" style="display:flex; align-items:center; gap:6px;">
           <i data-lucide="list-plus"></i> Add to Playlist
         </button>
+        ${mediaType ? `
+          <button class="btn-secondary small" id="btn-move-selected-to-folder" style="display:flex; align-items:center; gap:6px;">
+            <i data-lucide="folder-symlink"></i> Organizar em Pasta
+          </button>
+        ` : ''}
         <button class="btn-secondary small" id="btn-hide-selected" style="display:flex; align-items:center; gap:6px;">
           <i data-lucide="eye-off"></i> Hide Selected
         </button>
@@ -3027,10 +3466,83 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
         </button>
         <button class="btn-secondary small" id="btn-clear-selection">Clear</button>
       </div>
+
+      <!-- Table Header -->
+      <div class="track-list-table-header">
+        <div style="text-align: center;">#</div>
+        <div></div>
+        <div>Nome / Título</div>
+        <div>Álbum / Detalhes</div>
+        <div>Tipo</div>
+        <div style="text-align: right; padding-right: 8px;">Duração / Ações</div>
+      </div>
       
       <div class="track-view-container">
         <div class="track-list">
-          ${tracks.map((track, index) => `
+          <!-- Folder Up Row (when inside folder) -->
+          ${effectiveFolderId && currentFolder ? `
+            <div class="track-item folder-up-row" id="row-folder-up" title="Clique para voltar ou arraste arquivos aqui para mover para a raiz">
+              <div class="track-num" style="display: flex; align-items: center; justify-content: center; color: var(--accent);">
+                <i data-lucide="corner-left-up" style="width: 16px; height: 16px;"></i>
+              </div>
+              <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+                <span style="font-weight: 700; font-size: 14px; line-height: 1;">..</span>
+              </div>
+              <div class="track-name-cell" style="overflow: hidden;">
+                <div class="track-name" style="font-weight: 600; color: var(--text-main); font-size: 13.5px;">.. (Nível Superior / Raiz)</div>
+                <div class="track-list-artist" style="color: var(--accent); font-size: 11px;">Clique para voltar ou arraste arquivos aqui para desvincular</div>
+              </div>
+              <div class="track-album-cell" style="color: var(--text-muted); font-size: 12px;">Pasta Raiz</div>
+              <div class="track-kind-cell" style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Nível Acima</div>
+              <div class="track-duration" style="display: flex; align-items: center; justify-content: flex-end; color: var(--text-muted); font-size: 12px; padding-right: 8px;">
+                <i data-lucide="arrow-left" style="width: 14px; height: 14px;"></i>
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- Folder Rows (when at root and in manager 'all' mode) -->
+          ${!effectiveFolderId && mediaType && mediaFilterMode === 'all' ? mediaFolders.map(f => `
+            <div class="track-item folder-item-row" data-folder-id="${f.id}" data-folder-name="${f.name}" title="Pasta: ${f.name} (Clique para abrir, arraste faixas para mover)">
+              <div class="track-num" style="display: flex; align-items: center; justify-content: center; color: #ffaa00;">
+                <i data-lucide="folder" style="width: 15px; height: 15px;"></i>
+              </div>
+              <div class="folder-thumb-icon">
+                <i data-lucide="folder" style="width: 17px; height: 17px;"></i>
+              </div>
+              <div class="track-name-cell" style="overflow: hidden;">
+                <div class="track-name" style="font-weight: 600; color: var(--text-main); font-size: 13.5px;">${f.name}</div>
+                <div class="track-list-artist" style="color: var(--text-muted); font-size: 11px;">Pasta de arquivos &bull; Clique para abrir</div>
+              </div>
+              <div class="track-album-cell" style="color: var(--text-muted); font-size: 12px;">
+                <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255, 170, 0, 0.12); color: #ffaa00; border: 1px solid rgba(255, 170, 0, 0.25); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600;">
+                  <i data-lucide="layers" style="width: 10px; height: 10px;"></i> ${f.trackCount || 0} ${f.trackCount === 1 ? 'arquivo' : 'arquivos'}
+                </span>
+              </div>
+              <div class="track-kind-cell" style="font-size: 11px; color: #ffaa00; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Pasta</div>
+              <div class="track-duration" style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
+                <button class="btn-icon circle-small btn-rename-media-folder" data-id="${f.id}" data-name="${f.name}" title="Renomear Pasta" style="background: var(--glass); width: 28px; height: 28px;">
+                  <i data-lucide="edit-2" style="width: 13px; height: 13px;"></i>
+                </button>
+                <button class="btn-icon circle-small btn-delete-media-folder" data-id="${f.id}" data-name="${f.name}" title="Excluir Pasta" style="background: var(--glass); width: 28px; height: 28px; color: #ff4c4c;">
+                  <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i>
+                </button>
+              </div>
+            </div>
+          `).join('') : ''}
+
+          <!-- Empty State (if no folders and no tracks, or inside empty folder) -->
+          ${displayedTracks.length === 0 && (!mediaType || effectiveFolderId || mediaFolders.length === 0) ? `
+            <div style="padding: 40px; text-align: center; color: var(--text-muted); border: 1px dashed var(--border); border-radius: var(--radius-md); background: var(--glass); margin-top: 8px;">
+              <i data-lucide="${effectiveFolderId ? 'folder-open' : 'music'}" style="width: 36px; height: 36px; opacity: 0.35; margin-bottom: 10px; color: ${effectiveFolderId ? '#ffaa00' : 'inherit'};"></i>
+              <p style="font-size: 14px; font-weight: 500;">${effectiveFolderId ? 'Esta pasta está vazia.' : 'Nenhum arquivo encontrado aqui.'}</p>
+              <p style="font-size: 12px; margin-top: 4px; color: var(--text-muted);">${effectiveFolderId ? 'Arraste arquivos aqui para organizá-los nesta pasta.' : 'Adicione mídias à sua biblioteca para começar.'}</p>
+            </div>
+          ` : ''}
+
+          <!-- Tracks -->
+          ${displayedTracks.map((track, index) => {
+            const folderObj = track.mediaFolderId ? mediaFolders.find(f => f.id === track.mediaFolderId) : null
+            return `
             <div class="track-item ${currentTrackIndex >= 0 && currentPlaylist[currentTrackIndex]?.uuid === track.uuid ? 'playing' : ''} ${selectedTrackUuids.has(track.uuid) ? 'selected' : ''}" 
                  data-index="${index}" 
                  data-uuid="${track.uuid}"
@@ -3042,7 +3554,10 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
               </div>
               <div class="track-name-cell" style="overflow: hidden;">
                 <div class="track-name">${track.title || track.fileName || (track.filePath ? track.filePath.split(/[\\\/]/).pop() ?? 'Unknown' : 'Unknown')}</div>
-                <div class="track-list-artist">${track.artist || 'Unknown'}</div>
+                <div class="track-list-artist">
+                  ${track.artist || 'Unknown'}
+                  ${folderObj ? `<span class="track-folder-badge" title="Pasta: ${folderObj.name}"><i data-lucide="folder" style="width: 10px; height: 10px;"></i> ${folderObj.name}</span>` : ''}
+                </div>
                 <div class="track-list-path" style="font-size: 10px; color: var(--text-muted); opacity: 0.6; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${track.filePath || ''}">${track.filePath || ''}</div>
               </div>
               <div class="track-album-cell">${track.album || 'Unknown Album'}</div>
@@ -3060,6 +3575,11 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
                      <i data-lucide="list-minus"></i>
                    </button>
                  ` : ''}
+                 ${mediaType ? `
+                   <button class="btn-icon circle-small btn-move-track-folder" data-uuid="${track.uuid}" title="Organizar em Pasta" style="transition:all 0.2s; background:var(--glass);" onclick="event.stopPropagation(); window.handleMoveTrackToFolder('${track.uuid}', '${mediaType}')">
+                     <i data-lucide="folder-symlink"></i>
+                   </button>
+                 ` : ''}
                  <button class="btn-icon circle-small btn-hide-list-item" data-uuid="${track.uuid}" title="Hide File (Move to Hidden Files)" style="transition:all 0.2s; background:var(--glass);" onclick="event.stopPropagation(); window.handleQuickHideTrack('${track.uuid}')">
                    <i data-lucide="eye-off"></i>
                  </button>
@@ -3068,25 +3588,28 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
                  </button>
               </div>
             </div>
-          `).join('')}
+          `}).join('')}
         </div>
       </div>
     </div>
   `
 
-  lastTrackListView = tracks
+  lastTrackListView = displayedTracks
   lastListViewTitle = title
   
   // Update UI for the currently focused track in this list
   if (sidebarTrack) {
     updateSidebarUI(sidebarTrack)
   }
-  
-  document.querySelectorAll('.track-item').forEach(item => {
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  // Track Items click & dragstart (Only for actual tracks with data-uuid)
+  document.querySelectorAll('.track-item[data-uuid]').forEach(item => {
     item.addEventListener('click', (e) => {
       const mouseEvent = e as MouseEvent
       const index = parseInt(item.getAttribute('data-index')!)
-      const track = tracks[index]
+      const track = displayedTracks[index]
       const uuid = item.getAttribute('data-uuid')!
 
       if (mouseEvent.metaKey || mouseEvent.ctrlKey) {
@@ -3100,7 +3623,7 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
         }
       } else if (mouseEvent.shiftKey && selectedTrackUuids.size > 0) {
         // Shift select range
-        const allItems = Array.from(document.querySelectorAll('.track-item'))
+        const allItems = Array.from(document.querySelectorAll('.track-item[data-uuid]'))
         const firstSelectedIndex = allItems.findIndex(i => selectedTrackUuids.has(i.getAttribute('data-uuid')!))
         const start = Math.min(firstSelectedIndex, index)
         const end = Math.max(firstSelectedIndex, index)
@@ -3112,7 +3635,7 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
           itemToSelect.classList.add('selected')
         }
       } else {
-        // Normal click: select just this one and play if double clicked or just stay selected
+        // Normal click
         if (!selectedTrackUuids.has(uuid)) {
           document.querySelectorAll('.track-item.selected').forEach(i => i.classList.remove('selected'))
           selectedTrackUuids.clear()
@@ -3120,7 +3643,7 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
           item.classList.add('selected')
         }
         
-        currentPlaylist = tracks
+        currentPlaylist = displayedTracks
         playTrack(index)
       }
       
@@ -3134,6 +3657,325 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
       dragEvent.dataTransfer?.setData('track-uuid', uuid)
     })
   })
+
+  // Hook up Media Folder Controls
+  if (mediaType) {
+    // 1. Create New Folder Button
+    document.getElementById('btn-new-media-folder')?.addEventListener('click', async () => {
+      const name = await promptMediaFolderName(
+        isMusicView ? 'Nova Pasta de Músicas' : 'Nova Pasta de Vídeos',
+        '',
+        'Criar Pasta'
+      )
+      if (name && name.trim()) {
+        try {
+          await (window as any).api.createMediaFolder(name.trim(), mediaType)
+          if (typeof (window as any).showRadioToast === 'function') {
+            (window as any).showRadioToast(`Pasta "${name.trim()}" criada com sucesso!`)
+          }
+          await loadLibrary(false)
+          const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+          await renderTrackList(allMediaTracks, isMusicView ? 'Musics' : 'All Videos')
+        } catch (err) {
+          console.error('Failed to create media folder:', err)
+        }
+      }
+    })
+
+    // 2. Folder Rows Navigation & Drag-and-Drop
+    document.querySelectorAll('.folder-item-row').forEach(row => {
+      const folderId = row.getAttribute('data-folder-id')!
+      const folderName = row.getAttribute('data-folder-name') || 'Pasta'
+
+      row.addEventListener('click', async (e) => {
+        if ((e.target as HTMLElement).closest('.btn-rename-media-folder, .btn-delete-media-folder')) return
+        if (isMusicView) currentMusicFolderId = folderId
+        if (isVideoView) currentVideoFolderId = folderId
+        const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+        await renderTrackList(allMediaTracks, `${isMusicView ? 'Music' : 'Video'} Folder: ${folderName}`)
+      })
+
+      row.addEventListener('dragover', (e) => {
+        e.preventDefault()
+        row.classList.add('drag-target-hover')
+      })
+      row.addEventListener('dragleave', () => {
+        row.classList.remove('drag-target-hover')
+      })
+      row.addEventListener('drop', async (e) => {
+        e.preventDefault()
+        row.classList.remove('drag-target-hover')
+        const trackUuid = (e as DragEvent).dataTransfer?.getData('track-uuid')
+        if (!trackUuid) return
+
+        let uuidsToMove = [trackUuid]
+        if (selectedTrackUuids.has(trackUuid) && selectedTrackUuids.size > 1) {
+          uuidsToMove = Array.from(selectedTrackUuids)
+        }
+
+        try {
+          if (uuidsToMove.length === 1) {
+            await (window as any).api.moveTrackToMediaFolder(trackUuid, folderId)
+            const trk = library.find(t => t.uuid === trackUuid)
+            if (trk) trk.mediaFolderId = folderId
+          } else {
+            await (window as any).api.moveTracksToMediaFolder(uuidsToMove, folderId)
+            library.forEach(t => {
+              if (uuidsToMove.includes(t.uuid)) t.mediaFolderId = folderId
+            })
+            selectedTrackUuids.clear()
+          }
+
+          try {
+            localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+          } catch {}
+
+          if (typeof (window as any).showRadioToast === 'function') {
+            (window as any).showRadioToast(
+              uuidsToMove.length === 1 
+                ? `Arquivo movido para "${folderName}"!` 
+                : `${uuidsToMove.length} arquivos movidos para "${folderName}"!`
+            )
+          }
+
+          const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+          await renderTrackList(allMediaTracks, isMusicView ? 'Musics' : 'All Videos')
+        } catch (err) {
+          console.error('Failed to move tracks to folder:', err)
+        }
+      })
+    })
+
+    // 3. Rename Folder from Row Action Button
+    document.querySelectorAll('.btn-rename-media-folder').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        const id = btn.getAttribute('data-id')!
+        const oldName = btn.getAttribute('data-name') || ''
+        const newName = await promptMediaFolderName('Renomear Pasta', oldName, 'Salvar')
+        if (newName && newName.trim() && newName.trim() !== oldName) {
+          try {
+            await (window as any).api.renameMediaFolder(id, newName.trim())
+            if (typeof (window as any).showRadioToast === 'function') {
+              (window as any).showRadioToast(`Pasta renomeada para "${newName.trim()}"!`)
+            }
+            const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+            await renderTrackList(allMediaTracks, isMusicView ? 'Musics' : 'All Videos')
+          } catch (err) {
+            console.error('Failed to rename media folder:', err)
+          }
+        }
+      })
+    })
+
+    // 4. Delete Folder from Row Action Button
+    document.querySelectorAll('.btn-delete-media-folder').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        const id = btn.getAttribute('data-id')!
+        const folderName = btn.getAttribute('data-name') || ''
+        if (confirm(`Deseja remover a pasta "${folderName}"?\n\nOs arquivos não serão apagados do seu computador, apenas desvinculados desta pasta.`)) {
+          try {
+            await (window as any).api.deleteMediaFolder(id)
+            library.forEach(t => {
+              if (t.mediaFolderId === id) t.mediaFolderId = null
+            })
+            if (isMusicView && currentMusicFolderId === id) currentMusicFolderId = null
+            if (isVideoView && currentVideoFolderId === id) currentVideoFolderId = null
+            try {
+              localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+            } catch {}
+            if (typeof (window as any).showRadioToast === 'function') {
+              (window as any).showRadioToast(`Pasta "${folderName}" excluída!`)
+            }
+            await loadLibrary(false)
+            const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+            await renderTrackList(allMediaTracks, isMusicView ? 'Musics' : 'All Videos')
+          } catch (err) {
+            console.error('Failed to delete media folder:', err)
+          }
+        }
+      })
+    })
+
+    // 5. Active Folder Controls (inside folder view)
+    document.getElementById('btn-rename-active-folder')?.addEventListener('click', async () => {
+      if (!effectiveFolderId || !currentFolder) return
+      const newName = await promptMediaFolderName('Renomear Pasta', currentFolder.name, 'Salvar')
+      if (newName && newName.trim() && newName.trim() !== currentFolder.name) {
+        try {
+          await (window as any).api.renameMediaFolder(effectiveFolderId, newName.trim())
+          if (typeof (window as any).showRadioToast === 'function') {
+            (window as any).showRadioToast(`Pasta renomeada para "${newName.trim()}"!`)
+          }
+          const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+          await renderTrackList(allMediaTracks, `${isMusicView ? 'Music' : 'Video'} Folder: ${newName.trim()}`)
+        } catch (err) {
+          console.error('Failed to rename active folder:', err)
+        }
+      }
+    })
+
+    document.getElementById('btn-delete-active-folder')?.addEventListener('click', async () => {
+      if (!effectiveFolderId || !currentFolder) return
+      if (confirm(`Deseja remover a pasta "${currentFolder.name}"?\n\nOs arquivos não serão apagados do computador, apenas desvinculados desta pasta.`)) {
+        try {
+          await (window as any).api.deleteMediaFolder(effectiveFolderId)
+          library.forEach(t => {
+            if (t.mediaFolderId === effectiveFolderId) t.mediaFolderId = null
+          })
+          if (isMusicView) currentMusicFolderId = null
+          if (isVideoView) currentVideoFolderId = null
+          try {
+            localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+          } catch {}
+          if (typeof (window as any).showRadioToast === 'function') {
+            (window as any).showRadioToast(`Pasta excluída!`)
+          }
+          await loadLibrary(false)
+          const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+          await renderTrackList(allMediaTracks, isMusicView ? 'Musics' : 'All Videos')
+        } catch (err) {
+          console.error('Failed to delete active folder:', err)
+        }
+      }
+    })
+
+    // 6. Up / Root Navigation via .. Row (Inside Folder)
+    const rowFolderUp = document.getElementById('row-folder-up')
+    if (rowFolderUp) {
+      rowFolderUp.addEventListener('click', async () => {
+        if (isMusicView) currentMusicFolderId = null
+        if (isVideoView) currentVideoFolderId = null
+        mediaFilterMode = 'all'
+        const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+        await renderTrackList(allMediaTracks, isMusicView ? 'Musics' : 'All Videos')
+      })
+
+      rowFolderUp.addEventListener('dragover', (e) => {
+        e.preventDefault()
+        rowFolderUp.classList.add('drag-target-hover')
+      })
+      rowFolderUp.addEventListener('dragleave', () => {
+        rowFolderUp.classList.remove('drag-target-hover')
+      })
+      rowFolderUp.addEventListener('drop', async (e) => {
+        e.preventDefault()
+        rowFolderUp.classList.remove('drag-target-hover')
+        const trackUuid = (e as DragEvent).dataTransfer?.getData('track-uuid')
+        if (!trackUuid) return
+
+        let uuidsToMove = [trackUuid]
+        if (selectedTrackUuids.has(trackUuid) && selectedTrackUuids.size > 1) {
+          uuidsToMove = Array.from(selectedTrackUuids)
+        }
+
+        try {
+          if (uuidsToMove.length === 1) {
+            await (window as any).api.moveTrackToMediaFolder(trackUuid, null)
+            const trk = library.find(t => t.uuid === trackUuid)
+            if (trk) trk.mediaFolderId = null
+          } else {
+            await (window as any).api.moveTracksToMediaFolder(uuidsToMove, null)
+            library.forEach(t => {
+              if (uuidsToMove.includes(t.uuid)) t.mediaFolderId = null
+            })
+            selectedTrackUuids.clear()
+          }
+
+          try {
+            localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+          } catch {}
+
+          if (typeof (window as any).showRadioToast === 'function') {
+            (window as any).showRadioToast('Arquivo movido para a raiz!')
+          }
+
+          const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+          await renderTrackList(allMediaTracks, `${isMusicView ? 'Music' : 'Video'} Folder: ${currentFolder?.name}`)
+        } catch (err) {
+          console.error('Failed to unfile track:', err)
+        }
+      })
+    }
+
+    // 7. Breadcrumb Root Button Navigation & Drop
+    const breadcrumbRoot = document.getElementById('btn-breadcrumb-root')
+    if (breadcrumbRoot) {
+      breadcrumbRoot.addEventListener('click', async () => {
+        if (!effectiveFolderId) return
+        if (isMusicView) currentMusicFolderId = null
+        if (isVideoView) currentVideoFolderId = null
+        mediaFilterMode = 'all'
+        const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+        await renderTrackList(allMediaTracks, isMusicView ? 'Musics' : 'All Videos')
+      })
+
+      breadcrumbRoot.addEventListener('dragover', (e) => {
+        e.preventDefault()
+        breadcrumbRoot.classList.add('drag-target-hover')
+      })
+      breadcrumbRoot.addEventListener('dragleave', () => {
+        breadcrumbRoot.classList.remove('drag-target-hover')
+      })
+      breadcrumbRoot.addEventListener('drop', async (e) => {
+        e.preventDefault()
+        breadcrumbRoot.classList.remove('drag-target-hover')
+        const trackUuid = (e as DragEvent).dataTransfer?.getData('track-uuid')
+        if (!trackUuid) return
+
+        let uuidsToMove = [trackUuid]
+        if (selectedTrackUuids.has(trackUuid) && selectedTrackUuids.size > 1) {
+          uuidsToMove = Array.from(selectedTrackUuids)
+        }
+
+        try {
+          if (uuidsToMove.length === 1) {
+            await (window as any).api.moveTrackToMediaFolder(trackUuid, null)
+            const trk = library.find(t => t.uuid === trackUuid)
+            if (trk) trk.mediaFolderId = null
+          } else {
+            await (window as any).api.moveTracksToMediaFolder(uuidsToMove, null)
+            library.forEach(t => {
+              if (uuidsToMove.includes(t.uuid)) t.mediaFolderId = null
+            })
+            selectedTrackUuids.clear()
+          }
+
+          try {
+            localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+          } catch {}
+
+          if (typeof (window as any).showRadioToast === 'function') {
+            (window as any).showRadioToast('Movido para a raiz!')
+          }
+
+          const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+          await renderTrackList(allMediaTracks, isMusicView ? 'Musics' : 'All Videos')
+        } catch (err) {
+          console.error('Failed to unfile track via breadcrumb:', err)
+        }
+      })
+    }
+
+    // 8. Filter tabs (File Manager vs Flat List)
+    document.querySelectorAll('.media-filter-tab').forEach(tab => {
+      tab.addEventListener('click', async () => {
+        const filter = tab.getAttribute('data-filter') as 'all' | 'flat'
+        if (filter) {
+          mediaFilterMode = filter
+          const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+          await renderTrackList(allMediaTracks, isMusicView ? 'Musics' : 'All Videos')
+        }
+      })
+    })
+
+    // 9. Move Selected to Folder Button in selection bar
+    document.getElementById('btn-move-selected-to-folder')?.addEventListener('click', async () => {
+      if (selectedTrackUuids.size === 0) return
+      await openMoveToFolderModal(Array.from(selectedTrackUuids), mediaType)
+    })
+  }
 
   // Hook up Add Selected to Playlist button
   document.getElementById('btn-add-selected-to-playlist')?.addEventListener('click', () => {
@@ -3165,6 +4007,32 @@ function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'): voi
       renderTrackList(library, 'Musics')
     }
   })
+
+  if (isAlbumView) {
+    setActiveNav('btn-albums')
+  } else if (isArtistView) {
+    setActiveNav('btn-artists')
+  } else if (isMusicView) {
+    setActiveNav('btn-music-tracks')
+  }
+
+  if (isMusicSection) {
+    document.getElementById('tab-music-tracks')?.addEventListener('click', () => {
+      btnAllSongs.click()
+    })
+    document.getElementById('tab-music-albums')?.addEventListener('click', () => {
+      btnAlbums.click()
+    })
+    document.getElementById('tab-music-artists')?.addEventListener('click', () => {
+      btnArtists.click()
+    })
+    document.getElementById('btn-back-to-albums')?.addEventListener('click', () => {
+      btnAlbums.click()
+    })
+    document.getElementById('btn-back-to-artists')?.addEventListener('click', () => {
+      btnArtists.click()
+    })
+  }
 
   document.getElementById('btn-clear-selection')?.addEventListener('click', () => {
     selectedTrackUuids.clear()
@@ -3332,35 +4200,68 @@ async function handleDeleteSelected(): Promise<void> {
 }
 
 function renderAlbumGrid(): void {
+  setActiveNav('btn-albums')
   const albums: { [key: string]: TrackMetadata[] } = {}
-  library.forEach(track => {
+  library.filter(isAudioTrack).forEach(track => {
     const albumName = track.album || 'Unknown Album'
     if (!albums[albumName]) albums[albumName] = []
     albums[albumName].push(track)
   })
 
   contentView.innerHTML = `
-    <div class="view-header">
-      <h2 style="font-size:24px; font-weight:700; margin-bottom:24px;">Albums</h2>
-    </div>
-    <div class="album-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:24px;">
-      ${Object.keys(albums).map(albumName => {
-        const firstTrack = albums[albumName][0]
-        return `
-          <div class="album-card" data-album="${albumName}" style="background:var(--bg-card); border:1px solid var(--border); padding:16px; border-radius:var(--radius-lg); cursor:pointer; transition:all 0.2s ease;">
-            <div class="album-cover" style="width:100%; aspect-ratio:1/1; border-radius:50%; overflow:hidden; margin-bottom:12px; container-type: size; position: relative;">
-              ${(createPlaceholderMarkup as any)(albumName)}
-              ${(firstTrack.cover && firstTrack.cover !== 'null') ? `<img src="${firstTrack.cover}" style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:10;" onerror="this.style.display='none';">` : ''}
+    <div class="music-view-wrapper">
+      <!-- Music Section Navigation Tabs -->
+      <div class="music-nav-tabs">
+        <button class="music-nav-tab" id="tab-music-tracks">
+          <i data-lucide="folder" style="width:14px; height:14px;"></i> Faixas & Pastas
+        </button>
+        <button class="music-nav-tab active" id="tab-music-albums">
+          <i data-lucide="disc" style="width:14px; height:14px;"></i> Álbuns (${Object.keys(albums).length})
+        </button>
+        <button class="music-nav-tab" id="tab-music-artists">
+          <i data-lucide="mic" style="width:14px; height:14px;"></i> Artistas
+        </button>
+      </div>
+
+      <div class="view-header" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px;">
+        <div>
+          <h2 class="view-title" style="display: flex; align-items: center; gap: 10px;">
+            <i data-lucide="disc" style="color: var(--accent); width: 26px; height: 26px;"></i>
+            Álbuns
+          </h2>
+          <p class="view-subtitle">${Object.keys(albums).length} álbuns em Músicas</p>
+        </div>
+      </div>
+
+      <div class="album-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:24px;">
+        ${Object.keys(albums).map(albumName => {
+          const firstTrack = albums[albumName][0]
+          return `
+            <div class="album-card" data-album="${albumName}" style="background:var(--bg-card); border:1px solid var(--border); padding:16px; border-radius:var(--radius-lg); cursor:pointer; transition:all 0.2s ease;">
+              <div class="album-cover" style="width:100%; aspect-ratio:1/1; border-radius:12px; overflow:hidden; margin-bottom:12px; container-type: size; position: relative; box-shadow: 0 4px 14px rgba(0,0,0,0.3);">
+                ${(createPlaceholderMarkup as any)(albumName)}
+                ${(firstTrack.cover && firstTrack.cover !== 'null') ? `<img src="${firstTrack.cover}" style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:10;" onerror="this.style.display='none';">` : ''}
+              </div>
+              <div class="album-info">
+                <h4 style="font-weight:600; font-size:15px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${albumName}</h4>
+                <p style="color:var(--text-muted); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${firstTrack.artist || 'Unknown Artist'}</p>
+                <span style="font-size:11px; color:var(--text-muted); opacity:0.7;">${albums[albumName].length} ${albums[albumName].length === 1 ? 'faixa' : 'faixas'}</span>
+              </div>
             </div>
-            <div class="album-info">
-              <h4 style="font-weight:600; font-size:15px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${albumName}</h4>
-              <p style="color:var(--text-muted); font-size:13px;">${firstTrack.artist}</p>
-            </div>
-          </div>
-        `
-      }).join('')}
+          `
+        }).join('')}
+      </div>
     </div>
   `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  document.getElementById('tab-music-tracks')?.addEventListener('click', () => {
+    btnAllSongs.click()
+  })
+  document.getElementById('tab-music-artists')?.addEventListener('click', () => {
+    btnArtists.click()
+  })
 
   document.querySelectorAll('.album-card').forEach(card => {
     card.addEventListener('click', () => {
@@ -3372,35 +4273,67 @@ function renderAlbumGrid(): void {
 }
 
 function renderArtistGrid(): void {
+  setActiveNav('btn-artists')
   const artists: { [key: string]: TrackMetadata[] } = {}
-  library.forEach(track => {
+  library.filter(isAudioTrack).forEach(track => {
     const artistName = track.artist || 'Unknown Artist'
     if (!artists[artistName]) artists[artistName] = []
     artists[artistName].push(track)
   })
 
   contentView.innerHTML = `
-    <div class="view-header">
-      <h2 style="font-size:24px; font-weight:700; margin-bottom:24px;">Artists</h2>
-    </div>
-    <div class="artist-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:24px;">
-      ${Object.keys(artists).map(artistName => {
-        const firstTrack = artists[artistName][0]
-        return `
-          <div class="artist-card" data-artist="${artistName}" style="background:var(--bg-card); border:1px solid var(--border); padding:16px; border-radius:var(--radius-lg); cursor:pointer; transition:all 0.2s ease; text-align:center;">
-            <div class="artist-avatar" style="width:140px; height:140px; border-radius:50%; overflow:hidden; margin:0 auto 16px; container-type: size; border:1px solid var(--border); position: relative;">
-              ${(createPlaceholderMarkup as any)(artistName)}
-              ${(firstTrack.cover && firstTrack.cover !== 'null') ? `<img src="${firstTrack.cover}" style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:10;" onerror="this.style.display='none';">` : ''}
+    <div class="music-view-wrapper">
+      <!-- Music Section Navigation Tabs -->
+      <div class="music-nav-tabs">
+        <button class="music-nav-tab" id="tab-music-tracks">
+          <i data-lucide="folder" style="width:14px; height:14px;"></i> Faixas & Pastas
+        </button>
+        <button class="music-nav-tab" id="tab-music-albums">
+          <i data-lucide="disc" style="width:14px; height:14px;"></i> Álbuns
+        </button>
+        <button class="music-nav-tab active" id="tab-music-artists">
+          <i data-lucide="mic" style="width:14px; height:14px;"></i> Artistas (${Object.keys(artists).length})
+        </button>
+      </div>
+
+      <div class="view-header" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px;">
+        <div>
+          <h2 class="view-title" style="display: flex; align-items: center; gap: 10px;">
+            <i data-lucide="mic" style="color: var(--accent); width: 26px; height: 26px;"></i>
+            Artistas
+          </h2>
+          <p class="view-subtitle">${Object.keys(artists).length} artistas em Músicas</p>
+        </div>
+      </div>
+
+      <div class="artist-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:24px;">
+        ${Object.keys(artists).map(artistName => {
+          const firstTrack = artists[artistName][0]
+          return `
+            <div class="artist-card" data-artist="${artistName}" style="background:var(--bg-card); border:1px solid var(--border); padding:16px; border-radius:var(--radius-lg); cursor:pointer; transition:all 0.2s ease; text-align:center;">
+              <div class="artist-avatar" style="width:140px; height:140px; border-radius:50%; overflow:hidden; margin:0 auto 16px; container-type: size; border:1px solid var(--border); position: relative; box-shadow: 0 4px 14px rgba(0,0,0,0.3);">
+                ${(createPlaceholderMarkup as any)(artistName)}
+                ${(firstTrack.cover && firstTrack.cover !== 'null') ? `<img src="${firstTrack.cover}" style="position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:10;" onerror="this.style.display='none';">` : ''}
+              </div>
+              <div class="artist-info">
+                <h4 style="font-weight:600; font-size:16px; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${artistName}</h4>
+                <p style="color:var(--text-muted); font-size:13px;">${artists[artistName].length} ${artists[artistName].length === 1 ? 'faixa' : 'faixas'}</p>
+              </div>
             </div>
-            <div class="artist-info">
-              <h4 style="font-weight:600; font-size:16px; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${artistName}</h4>
-              <p style="color:var(--text-muted); font-size:13px;">${artists[artistName].length} tracks</p>
-            </div>
-          </div>
-        `
-      }).join('')}
+          `
+        }).join('')}
+      </div>
     </div>
   `
+
+  if ((window as any).lucide) (window as any).lucide.createIcons()
+
+  document.getElementById('tab-music-tracks')?.addEventListener('click', () => {
+    btnAllSongs.click()
+  })
+  document.getElementById('tab-music-albums')?.addEventListener('click', () => {
+    btnAlbums.click()
+  })
 
   document.querySelectorAll('.artist-card').forEach(card => {
     card.addEventListener('click', () => {
@@ -4607,7 +5540,7 @@ async function renderServerScreen(): Promise<void> {
         <div style="text-align: center; padding: 28px 16px; color: var(--text-muted); font-size: 14px; background: rgba(0,0,0,0.2); border-radius: var(--radius-md); border: 1px dashed var(--border);">
           <i data-lucide="radio" style="width: 24px; height: 24px; margin-bottom: 8px; opacity: 0.5; display: block; margin-left: auto; margin-right: auto;"></i>
           Nenhum dispositivo conectado no momento.<br>
-          <span style="font-size: 12px; color: #64748b;">Abra a URL na Smart TV, celular ou app IPTV para conectar.</span>
+          <span style="font-size: 12px; color: #64748b;">Abra a URL na Smart TV, celular ou app de canais para conectar.</span>
         </div>
       `
     }
@@ -4639,11 +5572,11 @@ async function renderServerScreen(): Promise<void> {
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
         <div>
           <h1 style="font-size: 30px; font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 10px;">
-            Servidor BlackBird & IPTV
+            Servidor BlackBird & Channels
             <span style="font-size: 12px; background: rgba(59,130,246,0.15); color: #3b82f6; border: 1px solid rgba(59,130,246,0.3); padding: 2px 8px; border-radius: 6px; font-weight: 700;">TV EDITION</span>
           </h1>
           <p style="color: var(--text-muted); font-size: 14px;">
-            Transmita seus canais IPTV e biblioteca de mídia diretamente para a sua Smart TV, TV Box, celular ou computador na mesma rede Wi-Fi.
+            Transmita seus canais e biblioteca de mídia diretamente para a sua Smart TV, TV Box, celular ou computador na mesma rede Wi-Fi.
           </p>
         </div>
       </div>
@@ -4678,7 +5611,7 @@ async function renderServerScreen(): Promise<void> {
           </div>
           <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
             <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
-              <i data-lucide="tv" style="width: 14px; height: 14px; color: #10b981;"></i> Canais IPTV
+              <i data-lucide="tv" style="width: 14px; height: 14px; color: #10b981;"></i> Channels
             </div>
             <div style="font-size: 22px; font-weight: 700; color: #10b981;">
               ${iptvChannelsCount}
@@ -4706,14 +5639,14 @@ async function renderServerScreen(): Promise<void> {
       <!-- Server Access Details (When Online) -->
       <div id="server-details" style="display: ${status.isRunning ? 'flex' : 'none'}; flex-direction: column; gap: 20px; margin-bottom: 24px;">
         
-        <!-- IPTV Playlist Card -->
+        <!-- Channels Playlist Card -->
         <div style="background: var(--glass); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: var(--radius-lg); padding: 24px; position: relative;">
           <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
             <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(59, 130, 246, 0.2); display: flex; align-items: center; justify-content: center; color: #38bdf8;">
               <i data-lucide="tv"></i>
             </div>
             <div>
-              <h3 style="font-size: 16px; font-weight: 700; color: #fff;">Playlist IPTV para Smart TV (M3U)</h3>
+              <h3 style="font-size: 16px; font-weight: 700; color: #fff;">Playlist de Canais para Smart TV (M3U)</h3>
               <p style="color: var(--text-muted); font-size: 13px;">Adicione esta URL no TiviMate, IPTV Smarters, Smart IPTV, SS IPTV, Kodi ou VLC:</p>
             </div>
           </div>
@@ -5265,18 +6198,59 @@ async function openPluginView(plugin: PluginInfo): Promise<void> {
 
 // M3U Logic
 let m3uChannelsCache: any[] = [];
-let currentM3uFilter = '';
+let currentM3uCategory = '';
 let currentM3uChannelData: any = null;
 let isM3uScanActive = false;
+let m3uChannelSearchQuery = '';
+let m3uCategorySearchQuery = '';
+let m3uViewMode: 'grid' | 'list' = 'list';
+let m3uPlayerLayoutMode: 'auto' | 'side' | 'top' = 'auto';
 
 function renderM3UView() {
   contentView.innerHTML = `
     <div class="m3u-view-wrapper">
-      <!-- Toolbar Superior: Filtro Alfabético + Contador + Auto Scan -->
-      <div class="m3u-toolbar">
-        <div class="m3u-toolbar-left" id="m3u-alphabet-filter"></div>
-        <div class="m3u-toolbar-right">
-          <span class="m3u-channel-counter" id="m3u-channel-count">Carregando canais...</span>
+      <!-- Top Header Bar: Título, Busca, Alternador de Visualização & Auto Scan -->
+      <div class="m3u-header-bar">
+        <div class="m3u-header-title-group">
+          <i data-lucide="tv" class="m3u-header-icon"></i>
+          <div>
+            <h2 class="m3u-header-title">Channels</h2>
+            <span class="m3u-channel-counter" id="m3u-channel-count">Carregando canais...</span>
+          </div>
+        </div>
+
+        <div class="m3u-header-actions">
+          <!-- Busca Rápida de Canais -->
+          <div class="m3u-search-box">
+            <i data-lucide="search"></i>
+            <input type="text" id="m3u-channel-search" placeholder="Buscar canal..." autocomplete="off" value="${escapeHtml(m3uChannelSearchQuery)}">
+            <button id="btn-clear-channel-search" class="m3u-search-clear ${m3uChannelSearchQuery ? '' : 'hidden'}" title="Limpar"><i data-lucide="x"></i></button>
+          </div>
+
+          <!-- Alternador de Visualização: Lista vs Grade -->
+          <div class="m3u-view-toggle">
+            <button id="btn-m3u-view-list" class="view-toggle-btn ${m3uViewMode === 'list' ? 'active' : ''}" title="Visualização em Lista">
+              <i data-lucide="list"></i>
+            </button>
+            <button id="btn-m3u-view-grid" class="view-toggle-btn ${m3uViewMode === 'grid' ? 'active' : ''}" title="Visualização em Grade">
+              <i data-lucide="layout-grid"></i>
+            </button>
+          </div>
+
+          <!-- Alternador de Disposição do Player: Auto (Responsivo), Lateral (Cinema), Topo -->
+          <div class="m3u-player-layout-toggle" id="m3u-player-layout-toggle" title="Disposição do Player">
+            <button id="btn-layout-auto" class="layout-btn ${m3uPlayerLayoutMode === 'auto' ? 'active' : ''}" title="Automático (Responsivo)">
+              <i data-lucide="monitor"></i> Auto
+            </button>
+            <button id="btn-layout-side" class="layout-btn ${m3uPlayerLayoutMode === 'side' ? 'active' : ''}" title="Lado a Lado (Modo Cinema)">
+              <i data-lucide="columns"></i> Lateral
+            </button>
+            <button id="btn-layout-top" class="layout-btn ${m3uPlayerLayoutMode === 'top' ? 'active' : ''}" title="Player no Topo">
+              <i data-lucide="rows"></i> Topo
+            </button>
+          </div>
+
+          <!-- Botão Auto Scan -->
           <button class="btn-m3u-scan" id="btn-m3u-auto-scan" title="Varrer e remover automaticamente os canais offline">
             <i data-lucide="radar"></i> Auto Scan
           </button>
@@ -5303,88 +6277,167 @@ function renderM3UView() {
         </div>
       </div>
 
-      <!-- Área Demarcada: Player de IPTV -->
-      <div id="m3u-player-section" class="m3u-player-section hidden">
-        <div class="m3u-player-header">
-          <div class="m3u-player-meta">
-            <div class="m3u-live-tag"><span class="live-dot"></span> AO VIVO</div>
-            <div class="m3u-player-info">
-              <span class="m3u-player-title" id="m3u-player-title">Canal</span>
-              <span class="m3u-player-category" id="m3u-player-category">IPTV</span>
-            </div>
-          </div>
-          <div class="m3u-player-controls">
-            <button id="btn-m3u-pip" title="Picture in Picture"><i data-lucide="picture-in-picture"></i></button>
-            <button id="btn-m3u-fullscreen" title="Tela Cheia"><i data-lucide="maximize"></i></button>
-            <button id="btn-m3u-close" title="Fechar Player"><i data-lucide="x"></i></button>
-          </div>
-        </div>
-        <div class="m3u-video-container">
-          <video id="m3u-inline-video" class="m3u-video-element" controls playsinline autoplay></video>
-          <div id="m3u-video-loading" class="m3u-video-loading hidden">
-            <i data-lucide="loader" class="spinner" style="width: 28px; height: 28px;"></i>
-            <span>Conectando ao canal...</span>
-          </div>
-          <div id="m3u-video-error" class="m3u-video-error hidden">
-            <i data-lucide="alert-triangle" style="width: 32px; height: 32px;"></i>
-            <span style="font-weight: 600;">Canal indisponível no momento</span>
-            <button class="btn-primary" id="btn-m3u-retry" style="padding: 6px 14px; font-size: 12px; margin-top: 6px;">Tentar novamente</button>
-          </div>
-        </div>
+      <!-- Barra de Filtros Compacta (Visível em Telas Estreitas) -->
+      <div class="m3u-compact-filter-bar" id="m3u-compact-filter-bar">
+        <div class="m3u-category-pills" id="m3u-category-pills"></div>
+        <select class="m3u-category-dropdown" id="m3u-category-dropdown" title="Selecionar Categoria / País"></select>
       </div>
 
-      <!-- Lista de Canais -->
-      <div class="m3u-list-header">
-        <span>Lista de Canais</span>
-      </div>
-      <div class="m3u-content-scroll">
-        <div class="m3u-list" id="m3u-grid"></div>
+      <!-- CONTAINER DIVIDINDO O GRID: FILTROS À ESQUERDA + CANAIS E PLAYER À DIREITA -->
+      <div class="m3u-split-container" id="m3u-split-container">
+        
+        <!-- 1. RELAÇÃO DOS FILTROS (DIVIDINDO O GRID) -->
+        <aside class="m3u-filters-sidebar" id="m3u-filters-sidebar">
+          <div class="m3u-sidebar-header">
+            <div class="m3u-sidebar-title">
+              <i data-lucide="filter"></i>
+              <span>Filtros & Categorias</span>
+            </div>
+            <span class="m3u-category-badge-total" id="m3u-categories-count">0</span>
+          </div>
+
+          <!-- Campo de Busca de Categorias / Países -->
+          <div class="m3u-filter-search-box">
+            <i data-lucide="search"></i>
+            <input type="text" id="m3u-category-search" placeholder="Filtrar categorias..." autocomplete="off" value="${escapeHtml(m3uCategorySearchQuery)}">
+          </div>
+
+          <!-- Lista de Categorias / Filtros -->
+          <div class="m3u-categories-list" id="m3u-categories-list"></div>
+        </aside>
+
+        <!-- 2. ÁREA PRINCIPAL: CANAIS + PLAYER RESPONSIVO -->
+        <main class="m3u-main-content" id="m3u-main-content">
+          <div class="m3u-workspace-layout layout-mode-${m3uPlayerLayoutMode}" id="m3u-workspace-layout">
+            <!-- Área Demarcada: Player de IPTV Responsivo (NO TOPO) -->
+            <section id="m3u-player-section" class="m3u-player-section hidden">
+              <div class="m3u-player-header">
+                <div class="m3u-player-meta">
+                  <div class="m3u-live-tag"><span class="live-dot"></span> AO VIVO</div>
+                  <div class="m3u-player-info">
+                    <span class="m3u-player-title" id="m3u-player-title">Canal</span>
+                    <span class="m3u-player-category" id="m3u-player-category">Channels</span>
+                  </div>
+                </div>
+                <div class="m3u-player-controls">
+                  <button id="btn-m3u-layout-flip" title="Alternar visualização (Lateral / Topo)"><i data-lucide="layout"></i></button>
+                  <button id="btn-m3u-pip" title="Picture in Picture"><i data-lucide="picture-in-picture"></i></button>
+                  <button id="btn-m3u-fullscreen" title="Tela Cheia"><i data-lucide="maximize"></i></button>
+                  <button id="btn-m3u-close" title="Fechar Player"><i data-lucide="x"></i></button>
+                </div>
+              </div>
+              <div class="m3u-video-container">
+                <video id="m3u-inline-video" class="m3u-video-element" controls playsinline autoplay></video>
+                <div id="m3u-video-loading" class="m3u-video-loading hidden">
+                  <i data-lucide="loader" class="spinner" style="width: 28px; height: 28px;"></i>
+                  <span>Conectando ao canal...</span>
+                </div>
+                <div id="m3u-video-error" class="m3u-video-error hidden">
+                  <i data-lucide="alert-triangle" style="width: 32px; height: 32px;"></i>
+                  <span style="font-weight: 600;">Canal indisponível no momento</span>
+                  <button class="btn-primary" id="btn-m3u-retry" style="padding: 6px 14px; font-size: 12px; margin-top: 6px;">Tentar novamente</button>
+                </div>
+              </div>
+              <div class="m3u-player-footer">
+                <div class="m3u-now-playing-badge">
+                  <i data-lucide="radio"></i> Transmissão AO VIVO
+                </div>
+              </div>
+            </section>
+
+            <!-- Seção de Canais (LOGO ABAIXO DO PLAYER) -->
+            <section class="m3u-channels-section" id="m3u-channels-section">
+              <div class="m3u-section-header">
+                <div class="m3u-active-category-title">
+                  <span class="m3u-category-name" id="m3u-current-cat-display">Todos os Canais</span>
+                  <span class="m3u-category-count-pill" id="m3u-filtered-count-display">0 canais</span>
+                </div>
+              </div>
+              <div class="m3u-content-scroll" id="m3u-channels-scroll">
+                <div class="m3u-list ${m3uViewMode === 'grid' ? 'view-grid' : 'view-list'}" id="m3u-grid"></div>
+              </div>
+            </section>
+
+          </div>
+        </main>
+
       </div>
     </div>
   `;
 
-  // Construir botões de filtro de letras (sem reconstruir a página a cada clique)
-  const filterContainer = document.getElementById('m3u-alphabet-filter');
-  if (filterContainer) {
-    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-
-    const allBtn = document.createElement('button');
-    allBtn.className = 'alphabet-btn' + (currentM3uFilter === '' ? ' active' : '');
-    allBtn.textContent = 'All';
-    allBtn.style.width = '40px';
-    allBtn.onclick = () => {
-      currentM3uFilter = '';
-      updateM3uFilterButtons(filterContainer);
-      renderM3UGrid();
-    };
-    filterContainer.appendChild(allBtn);
-
-    const favBtn = document.createElement('button');
-    favBtn.className = 'alphabet-btn' + (currentM3uFilter === 'FAV' ? ' active' : '');
-    favBtn.innerHTML = '<i data-lucide="heart" style="width: 14px; height: 14px;"></i>';
-    favBtn.onclick = () => {
-      currentM3uFilter = 'FAV';
-      updateM3uFilterButtons(filterContainer);
-      renderM3UGrid();
-    };
-    filterContainer.appendChild(favBtn);
-
-    alphabet.forEach(letter => {
-      const btn = document.createElement('button');
-      btn.className = 'alphabet-btn' + (currentM3uFilter === letter ? ' active' : '');
-      btn.textContent = letter;
-      btn.onclick = () => {
-        currentM3uFilter = letter;
-        updateM3uFilterButtons(filterContainer);
-        renderM3UGrid();
-      };
-      filterContainer.appendChild(btn);
-    });
-  }
-
   // Listener do botão Auto Scan e Cancelar Scan
   document.getElementById('btn-m3u-auto-scan')?.addEventListener('click', handleAutoScanM3u);
   document.getElementById('btn-m3u-cancel-scan')?.addEventListener('click', handleCancelAutoScanM3u);
+
+  // Listener de Busca de Canais
+  const chSearchInput = document.getElementById('m3u-channel-search') as HTMLInputElement | null;
+  const chSearchClear = document.getElementById('btn-clear-channel-search');
+  chSearchInput?.addEventListener('input', () => {
+    m3uChannelSearchQuery = chSearchInput.value;
+    if (chSearchClear) {
+      if (m3uChannelSearchQuery) chSearchClear.classList.remove('hidden');
+      else chSearchClear.classList.add('hidden');
+    }
+    renderM3UGrid(false);
+  });
+  chSearchClear?.addEventListener('click', () => {
+    m3uChannelSearchQuery = '';
+    if (chSearchInput) chSearchInput.value = '';
+    chSearchClear.classList.add('hidden');
+    renderM3UGrid(false);
+  });
+
+  // Listener de Busca de Categorias
+  const catSearchInput = document.getElementById('m3u-category-search') as HTMLInputElement | null;
+  catSearchInput?.addEventListener('input', () => {
+    m3uCategorySearchQuery = catSearchInput.value;
+    renderM3UCategories();
+  });
+
+  // Alternadores de Modo de Grade / Lista
+  const btnViewList = document.getElementById('btn-m3u-view-list');
+  const btnViewGrid = document.getElementById('btn-m3u-view-grid');
+  const m3uGridEl = document.getElementById('m3u-grid');
+  btnViewList?.addEventListener('click', () => {
+    m3uViewMode = 'list';
+    btnViewList.classList.add('active');
+    btnViewGrid?.classList.remove('active');
+    m3uGridEl?.classList.remove('view-grid');
+    m3uGridEl?.classList.add('view-list');
+  });
+  btnViewGrid?.addEventListener('click', () => {
+    m3uViewMode = 'grid';
+    btnViewGrid.classList.add('active');
+    btnViewList?.classList.remove('active');
+    m3uGridEl?.classList.remove('view-list');
+    m3uGridEl?.classList.add('view-grid');
+  });
+
+  // Alternador de Disposição do Player (Auto / Lateral / Topo)
+  const updatePlayerLayoutUI = (mode: 'auto' | 'side' | 'top') => {
+    m3uPlayerLayoutMode = mode;
+    const workspace = document.getElementById('m3u-workspace-layout');
+    if (workspace) {
+      workspace.className = `m3u-workspace-layout layout-mode-${mode}`;
+    }
+    ['auto', 'side', 'top'].forEach(m => {
+      const btn = document.getElementById(`btn-layout-${m}`);
+      if (btn) {
+        if (m === mode) btn.classList.add('active');
+        else btn.classList.remove('active');
+      }
+    });
+  };
+  document.getElementById('btn-layout-auto')?.addEventListener('click', () => updatePlayerLayoutUI('auto'));
+  document.getElementById('btn-layout-side')?.addEventListener('click', () => updatePlayerLayoutUI('side'));
+  document.getElementById('btn-layout-top')?.addEventListener('click', () => updatePlayerLayoutUI('top'));
+  document.getElementById('btn-m3u-layout-flip')?.addEventListener('click', () => {
+    const nextMode = m3uPlayerLayoutMode === 'side' ? 'top' : 'side';
+    updatePlayerLayoutUI(nextMode);
+  });
+
+  // Renderizar categorias se já tiver canais em cache
+  renderM3UCategories();
 
   // Se já tiver canal tocando anteriormente, reabrir e continuar
   if (currentM3uChannelData) {
@@ -5395,45 +6448,324 @@ function renderM3UView() {
 
   if ((window as any).lucide) (window as any).lucide.createIcons();
 
-  renderM3UGrid();
+  renderM3UGrid(true);
 }
 
-function updateM3uFilterButtons(container: HTMLElement) {
-  container.querySelectorAll('.alphabet-btn').forEach((btn) => {
-    const text = btn.textContent?.trim();
-    const hasHeart = btn.querySelector('[data-lucide="heart"]');
-    if (currentM3uFilter === '' && text === 'All') {
-      btn.classList.add('active');
-    } else if (currentM3uFilter === 'FAV' && hasHeart) {
-      btn.classList.add('active');
-    } else if (text === currentM3uFilter) {
-      btn.classList.add('active');
+function renderM3UCategories(): void {
+  const sidebarList = document.getElementById('m3u-categories-list');
+  const catCountBadge = document.getElementById('m3u-categories-count');
+  const pillsContainer = document.getElementById('m3u-category-pills');
+  const dropdownEl = document.getElementById('m3u-category-dropdown') as HTMLSelectElement | null;
+
+  const total = m3uChannelsCache ? m3uChannelsCache.length : 0;
+  const favCount = m3uChannelsCache ? m3uChannelsCache.filter(ch => ch.is_favorite === 1).length : 0;
+
+  // Extrair contagem agrupada por categoria (group_title / país)
+  const catCountMap = new Map<string, number>();
+  if (m3uChannelsCache) {
+    for (const ch of m3uChannelsCache) {
+      const rawGroup = (ch.group_title && ch.group_title.trim()) || 'Geral';
+      catCountMap.set(rawGroup, (catCountMap.get(rawGroup) || 0) + 1);
+    }
+  }
+
+  // Ordenar categorias em ordem alfabética (case-insensitive)
+  const allCategories = Array.from(catCountMap.keys()).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' })
+  );
+
+  if (catCountBadge) {
+    catCountBadge.textContent = String(allCategories.length);
+  }
+
+  // Filtrar categorias pelo input de pesquisa lateral
+  const query = (m3uCategorySearchQuery || '').trim().toLowerCase();
+  const visibleCategories = query
+    ? allCategories.filter(cat => cat.toLowerCase().includes(query))
+    : allCategories;
+
+  // 1. Renderizar Relação de Filtros na Barra Lateral (Dividindo o Grid)
+  if (sidebarList) {
+    sidebarList.innerHTML = '';
+
+    // Item: Todos os Canais
+    if (!query || 'todos os canais'.includes(query)) {
+      const allItem = document.createElement('button');
+      allItem.className = 'm3u-cat-item' + (currentM3uCategory === '' ? ' active' : '');
+      allItem.innerHTML = `
+        <div class="m3u-cat-item-left">
+          <i data-lucide="tv"></i>
+          <span class="m3u-cat-item-name">Todos os Canais</span>
+        </div>
+        <span class="m3u-cat-badge">${total}</span>
+      `;
+      allItem.onclick = () => {
+        currentM3uCategory = '';
+        syncCategorySelection(dropdownEl, pillsContainer, sidebarList);
+        renderM3UGrid(false);
+      };
+      sidebarList.appendChild(allItem);
+    }
+
+    // Item: Favoritos
+    if ((favCount > 0 || currentM3uCategory === 'FAV') && (!query || 'favoritos'.includes(query))) {
+      const favItem = document.createElement('button');
+      favItem.className = 'm3u-cat-item' + (currentM3uCategory === 'FAV' ? ' active' : '');
+      favItem.innerHTML = `
+        <div class="m3u-cat-item-left">
+          <i data-lucide="heart" style="color: #ef4444;"></i>
+          <span class="m3u-cat-item-name">Favoritos</span>
+        </div>
+        <span class="m3u-cat-badge">${favCount}</span>
+      `;
+      favItem.onclick = () => {
+        currentM3uCategory = 'FAV';
+        syncCategorySelection(dropdownEl, pillsContainer, sidebarList);
+        renderM3UGrid(false);
+      };
+      sidebarList.appendChild(favItem);
+    }
+
+    // Itens dinâmicos por categoria (Países / Gêneros)
+    visibleCategories.forEach(cat => {
+      const count = catCountMap.get(cat) || 0;
+      const isActive = currentM3uCategory.toLowerCase() === cat.toLowerCase();
+      const catItem = document.createElement('button');
+      catItem.className = 'm3u-cat-item' + (isActive ? ' active' : '');
+      catItem.innerHTML = `
+        <div class="m3u-cat-item-left">
+          <i data-lucide="globe"></i>
+          <span class="m3u-cat-item-name" title="${escapeHtml(cat)}">${escapeHtml(cat)}</span>
+        </div>
+        <span class="m3u-cat-badge">${count}</span>
+      `;
+      catItem.onclick = () => {
+        currentM3uCategory = cat;
+        syncCategorySelection(dropdownEl, pillsContainer, sidebarList);
+        renderM3UGrid(false);
+      };
+      sidebarList.appendChild(catItem);
+    });
+
+    if (visibleCategories.length === 0 && query) {
+      const emptyItem = document.createElement('div');
+      emptyItem.style.padding = '16px 12px';
+      emptyItem.style.fontSize = '12px';
+      emptyItem.style.color = 'var(--text-muted)';
+      emptyItem.style.textAlign = 'center';
+      emptyItem.textContent = `Nenhuma categoria para "${query}"`;
+      sidebarList.appendChild(emptyItem);
+    }
+  }
+
+  // 2. Renderizar Dropdown de seleção rápida (modo janela estreita)
+  if (dropdownEl) {
+    let optionsHtml = `<option value="">Todas as Categorias (${total})</option>`;
+    if (favCount > 0 || currentM3uCategory === 'FAV') {
+      optionsHtml += `<option value="FAV" ${currentM3uCategory === 'FAV' ? 'selected' : ''}>⭐ Favoritos (${favCount})</option>`;
+    }
+    allCategories.forEach(cat => {
+      const count = catCountMap.get(cat) || 0;
+      const isSelected = currentM3uCategory.toLowerCase() === cat.toLowerCase();
+      optionsHtml += `<option value="${escapeHtml(cat)}" ${isSelected ? 'selected' : ''}>${escapeHtml(cat)} (${count})</option>`;
+    });
+    dropdownEl.innerHTML = optionsHtml;
+    dropdownEl.value = currentM3uCategory;
+
+    dropdownEl.onchange = () => {
+      currentM3uCategory = dropdownEl.value;
+      syncCategorySelection(dropdownEl, pillsContainer, sidebarList);
+      renderM3UGrid(false);
+    };
+  }
+
+  // 3. Renderizar Pílulas Horizontais (modo janela estreita)
+  if (pillsContainer) {
+    pillsContainer.innerHTML = '';
+
+    // Pílula: Todos
+    const allPill = document.createElement('button');
+    allPill.className = 'm3u-category-pill' + (currentM3uCategory === '' ? ' active' : '');
+    allPill.innerHTML = `<span>Todos</span><span class="pill-count">${total}</span>`;
+    allPill.onclick = () => {
+      currentM3uCategory = '';
+      syncCategorySelection(dropdownEl, pillsContainer, sidebarList);
+      renderM3UGrid(false);
+    };
+    pillsContainer.appendChild(allPill);
+
+    // Pílula: Favoritos
+    if (favCount > 0 || currentM3uCategory === 'FAV') {
+      const favPill = document.createElement('button');
+      favPill.className = 'm3u-category-pill' + (currentM3uCategory === 'FAV' ? ' active' : '');
+      favPill.innerHTML = `<i data-lucide="heart" style="width: 13px; height: 13px;"></i><span>Favoritos</span><span class="pill-count">${favCount}</span>`;
+      favPill.onclick = () => {
+        currentM3uCategory = 'FAV';
+        syncCategorySelection(dropdownEl, pillsContainer, sidebarList);
+        renderM3UGrid(false);
+      };
+      pillsContainer.appendChild(favPill);
+    }
+
+    // Pílulas para cada Categoria
+    allCategories.forEach(cat => {
+      const count = catCountMap.get(cat) || 0;
+      const pill = document.createElement('button');
+      const isActive = currentM3uCategory.toLowerCase() === cat.toLowerCase();
+      pill.className = 'm3u-category-pill' + (isActive ? ' active' : '');
+      pill.innerHTML = `<span>${escapeHtml(cat)}</span><span class="pill-count">${count}</span>`;
+      pill.onclick = () => {
+        currentM3uCategory = cat;
+        syncCategorySelection(dropdownEl, pillsContainer, sidebarList);
+        renderM3UGrid(false);
+      };
+      pillsContainer.appendChild(pill);
+    });
+  }
+
+  if ((window as any).lucide) (window as any).lucide.createIcons();
+}
+
+function syncCategorySelection(
+  dropdownEl: HTMLSelectElement | null,
+  pillsContainer: HTMLElement | null,
+  sidebarList?: HTMLElement | null
+): void {
+  if (dropdownEl) {
+    dropdownEl.value = currentM3uCategory;
+  }
+  if (pillsContainer) {
+    updateActiveCategoryPills(pillsContainer);
+  }
+  if (sidebarList) {
+    updateActiveSidebarItems(sidebarList);
+  }
+}
+
+function updateActiveSidebarItems(sidebarList: HTMLElement): void {
+  const items = sidebarList.querySelectorAll('.m3u-cat-item');
+  items.forEach(item => {
+    const textSpan = item.querySelector('.m3u-cat-item-name');
+    const text = textSpan ? textSpan.textContent?.trim() : '';
+    const hasHeart = item.querySelector('[data-lucide="heart"]');
+
+    let isActive = false;
+    if (currentM3uCategory === '' && text === 'Todos os Canais') {
+      isActive = true;
+    } else if (currentM3uCategory === 'FAV' && hasHeart) {
+      isActive = true;
+    } else if (text && text.toLowerCase() === currentM3uCategory.toLowerCase()) {
+      isActive = true;
+    }
+
+    if (isActive) item.classList.add('active');
+    else item.classList.remove('active');
+  });
+}
+
+function updateActiveCategoryPills(container: HTMLElement | null): void {
+  if (!container) return;
+  const pills = container.querySelectorAll('.m3u-category-pill');
+  pills.forEach((pill) => {
+    const textSpan = pill.querySelector('span');
+    const text = textSpan ? textSpan.textContent?.trim() : '';
+    const hasHeart = pill.querySelector('[data-lucide="heart"]');
+    
+    let isActive = false;
+    if (currentM3uCategory === '' && text === 'Todos') {
+      isActive = true;
+    } else if (currentM3uCategory === 'FAV' && hasHeart) {
+      isActive = true;
+    } else if (text && text.toLowerCase() === currentM3uCategory.toLowerCase()) {
+      isActive = true;
+    }
+
+    if (isActive) {
+      pill.classList.add('active');
+      pill.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
     } else {
-      btn.classList.remove('active');
+      pill.classList.remove('active');
     }
   });
 }
 
-async function renderM3UGrid() {
+async function renderM3UGrid(fetchFromApi: boolean = true) {
   const grid = document.getElementById('m3u-grid');
   const countLabel = document.getElementById('m3u-channel-count');
+  const currentCatDisplay = document.getElementById('m3u-current-cat-display');
+  const filteredCountDisplay = document.getElementById('m3u-filtered-count-display');
   if (!grid) return;
-  grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 40px;"><i data-lucide="loader" class="spinner"></i></div>';
-  if ((window as any).lucide) (window as any).lucide.createIcons();
+
+  // Se não temos canais em memória, carregar do cache instantaneamente antes de chamar IPC
+  if (!m3uChannelsCache || m3uChannelsCache.length === 0) {
+    try {
+      const cached = localStorage.getItem('blackbird_m3u_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          m3uChannelsCache = parsed;
+          renderM3UCategories();
+        }
+      }
+    } catch {}
+  }
+
+  if (!m3uChannelsCache || m3uChannelsCache.length === 0) {
+    grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 40px;"><i data-lucide="loader" class="spinner"></i></div>';
+    if ((window as any).lucide) (window as any).lucide.createIcons();
+  }
 
   try {
-    m3uChannelsCache = await (window as any).api.getM3uChannels();
+    if (fetchFromApi || !m3uChannelsCache || m3uChannelsCache.length === 0) {
+      m3uChannelsCache = await (window as any).api.getM3uChannels();
+      try {
+        localStorage.setItem('blackbird_m3u_cache', JSON.stringify(m3uChannelsCache));
+      } catch {}
+      renderM3UCategories();
+    }
     grid.innerHTML = '';
 
-    if (countLabel) {
-      countLabel.textContent = `${m3uChannelsCache.length} canal${m3uChannelsCache.length === 1 ? '' : 'is'}`;
-    }
+    const chQuery = (m3uChannelSearchQuery || '').trim().toLowerCase();
 
     const filtered = m3uChannelsCache.filter(ch => {
-      if (currentM3uFilter === '') return true;
-      if (currentM3uFilter === 'FAV') return ch.is_favorite === 1;
-      return (ch.name || '').toUpperCase().startsWith(currentM3uFilter);
+      // 1. Filtro por Categoria / País
+      if (currentM3uCategory !== '') {
+        if (currentM3uCategory === 'FAV') {
+          if (ch.is_favorite !== 1) return false;
+        } else {
+          const cat = (ch.group_title && ch.group_title.trim()) || 'Geral';
+          if (cat.toLowerCase() !== currentM3uCategory.toLowerCase()) return false;
+        }
+      }
+
+      // 2. Filtro por Busca de Canal
+      if (chQuery) {
+        const nameMatches = (ch.name || '').toLowerCase().includes(chQuery);
+        const groupMatches = (ch.group_title || '').toLowerCase().includes(chQuery);
+        if (!nameMatches && !groupMatches) return false;
+      }
+
+      return true;
     });
+
+    // Atualizar Título da Categoria Ativa
+    if (currentCatDisplay) {
+      if (currentM3uCategory === '') currentCatDisplay.textContent = 'Todos os Canais';
+      else if (currentM3uCategory === 'FAV') currentCatDisplay.textContent = '⭐ Favoritos';
+      else currentCatDisplay.textContent = currentM3uCategory;
+    }
+
+    if (filteredCountDisplay) {
+      filteredCountDisplay.textContent = `${filtered.length} canal${filtered.length === 1 ? '' : 'is'}`;
+    }
+
+    if (countLabel) {
+      if (currentM3uCategory === '' && !chQuery) {
+        countLabel.textContent = `${m3uChannelsCache.length} canal${m3uChannelsCache.length === 1 ? '' : 'is'}`;
+      } else {
+        countLabel.textContent = `${filtered.length} de ${m3uChannelsCache.length} canais`;
+      }
+    }
 
     if (filtered.length === 0) {
       if (m3uChannelsCache.length === 0) {
@@ -5442,9 +6774,9 @@ async function renderM3UGrid() {
             <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(56, 189, 248, 0.1); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; color: var(--accent, #38bdf8);">
               <i data-lucide="tv" style="width: 32px; height: 32px;"></i>
             </div>
-            <h3 style="font-size: 18px; font-weight: 600; color: var(--text-main, #fff); margin-bottom: 8px;">Nenhum Canal IPTV</h3>
+            <h3 style="font-size: 18px; font-weight: 600; color: var(--text-main, #fff); margin-bottom: 8px;">Nenhum Canal</h3>
             <p style="color: var(--text-muted, #94a3b8); font-size: 14px; max-width: 420px; margin-bottom: 24px;">
-              Importe uma lista M3U ou M3U8 através de uma URL web ou selecione um arquivo local para assistir a canais IPTV.
+              Importe uma lista M3U ou M3U8 através de uma URL web ou selecione um arquivo local para assistir aos seus canais.
             </p>
             <button class="btn-primary" id="btn-empty-import-m3u" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: var(--radius-md); font-weight: 600; cursor: pointer;">
               <i data-lucide="list-video"></i> Importar Lista M3U
@@ -5459,11 +6791,20 @@ async function renderM3UGrid() {
         if ((window as any).lucide) (window as any).lucide.createIcons();
         return;
       }
-      grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 40px;">Nenhum canal encontrado para este filtro.</div>';
+
+      const emptyCategoryLabel = currentM3uCategory === 'FAV' ? 'Favoritos' : currentM3uCategory;
+      const searchHint = chQuery ? ` com o termo "${escapeHtml(chQuery)}"` : '';
+      grid.innerHTML = `
+        <div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 50px 20px;">
+          <i data-lucide="search-x" style="width: 36px; height: 36px; margin-bottom: 12px; opacity: 0.5;"></i>
+          <p style="font-size: 14px; color: #fff;">Nenhum canal encontrado${emptyCategoryLabel ? ` na categoria <strong>${escapeHtml(emptyCategoryLabel)}</strong>` : ''}${searchHint}.</p>
+        </div>
+      `;
+      if ((window as any).lucide) (window as any).lucide.createIcons();
       return;
     }
 
-    grid.className = 'm3u-list';
+    grid.className = `m3u-list ${m3uViewMode === 'grid' ? 'view-grid' : 'view-list'}`;
     currentM3uList = filtered;
 
     filtered.forEach((ch, index) => {
@@ -5554,7 +6895,7 @@ function playM3uChannel(ch: any, index: number = -1): void {
 
   // Atualizar barra inferior de reprodução
   playerTitle.textContent = ch.name || 'Unknown Channel';
-  playerArtist.textContent = ch.group_title || 'IPTV';
+  playerArtist.textContent = ch.group_title || 'Channels';
   playerAlbum.textContent = '';
   playerFormat.textContent = 'M3U8';
   playerArtwork.innerHTML = ch.logo_url 
@@ -5573,7 +6914,7 @@ function playM3uChannel(ch: any, index: number = -1): void {
     else item.classList.remove('playing');
   });
 
-  // Ativar Área Demarcada como Player de IPTV no topo
+  // Ativar Área Demarcada como Player de Channels no topo
   const playerSection = document.getElementById('m3u-player-section');
   const inlineVideo = document.getElementById('m3u-inline-video') as HTMLVideoElement | null;
   const playerTitleEl = document.getElementById('m3u-player-title');
@@ -5584,9 +6925,11 @@ function playM3uChannel(ch: any, index: number = -1): void {
   if (playerSection && inlineVideo) {
     playerSection.classList.remove('hidden');
     if (playerTitleEl) playerTitleEl.textContent = ch.name || 'Canal';
-    if (playerCatEl) playerCatEl.textContent = ch.group_title || 'IPTV';
+    if (playerCatEl) playerCatEl.textContent = ch.group_title || 'Channels';
     if (videoError) videoError.classList.add('hidden');
     if (videoLoading) videoLoading.classList.remove('hidden');
+
+    playerSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     if (currentHls) {
       currentHls.destroy();
@@ -5679,7 +7022,7 @@ async function handleAutoScanM3u(): Promise<void> {
   
   const channels = await (window as any).api.getM3uChannels();
   if (!channels || channels.length === 0) {
-    alert('Nenhum canal IPTV encontrado para escanear. Importe uma lista M3U primeiro.');
+    alert('Nenhum canal encontrado para escanear. Importe uma lista M3U primeiro.');
     return;
   }
 
