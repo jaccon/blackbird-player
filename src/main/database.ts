@@ -127,6 +127,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     type TEXT NOT NULL,
+    parent_id TEXT DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -202,6 +203,17 @@ try {
   if (!hasMediaFolder) {
     db.exec('ALTER TABLE tracks ADD COLUMN media_folder_id TEXT DEFAULT NULL');
     console.log('Migrated DB: added media_folder_id column');
+  }
+
+  try {
+    const foldersInfo = db.prepare('PRAGMA table_info(media_folders)').all() as any[];
+    const hasParentId = foldersInfo.some(col => col.name === 'parent_id');
+    if (!hasParentId) {
+      db.exec('ALTER TABLE media_folders ADD COLUMN parent_id TEXT DEFAULT NULL');
+      console.log('Migrated DB: added parent_id column to media_folders');
+    }
+  } catch (err: any) {
+    console.warn('Migration media_folders parent_id error:', err);
   }
 
   // Backfill mimetype and kind for existing tracks
@@ -341,9 +353,12 @@ export interface HiddenFolder {
 export interface MediaFolder {
   id: string;
   name: string;
-  type: 'music' | 'video';
+  type: 'music' | 'video' | 'photo';
+  parent_id?: string | null;
+  parentId?: string | null;
   created_at?: string;
   trackCount?: number;
+  subfolderCount?: number;
 }
 
 export interface DBM3uChannel {
@@ -783,23 +798,27 @@ export const dbOps = {
     return db.prepare(`UPDATE tracks SET is_hidden = 0, hidden_folder_id = NULL WHERE uuid IN (${placeholders})`).run(...uuids);
   },
 
-  // Media Folders (Music & Video Organization)
-  getMediaFolders: (type: 'music' | 'video') => {
+  // Media Folders (Music, Video & Photos Organization with Subfolders)
+  getMediaFolders: (type: 'music' | 'video' | 'photo') => {
     return db.prepare(`
       SELECT f.*, 
+             f.parent_id as parentId,
              (SELECT COUNT(*) FROM tracks 
               WHERE (is_hidden = 0 OR is_hidden IS NULL) 
-                AND media_folder_id = f.id) as trackCount
+                AND media_folder_id = f.id) as trackCount,
+             (SELECT COUNT(*) FROM media_folders sub
+              WHERE sub.parent_id = f.id) as subfolderCount
       FROM media_folders f
       WHERE f.type = ?
       ORDER BY f.name COLLATE NOCASE ASC
     `).all(type) as MediaFolder[];
   },
 
-  createMediaFolder: (name: string, type: 'music' | 'video') => {
+  createMediaFolder: (name: string, type: 'music' | 'video' | 'photo', parentId?: string | null) => {
     const id = uuidv4();
-    db.prepare('INSERT INTO media_folders (id, name, type) VALUES (?, ?, ?)').run(id, name, type);
-    return { id, name, type };
+    const cleanParentId = (parentId && parentId !== 'null' && parentId !== '') ? parentId : null;
+    db.prepare('INSERT INTO media_folders (id, name, type, parent_id) VALUES (?, ?, ?, ?)').run(id, name, type, cleanParentId);
+    return { id, name, type, parent_id: cleanParentId, parentId: cleanParentId };
   },
 
   renameMediaFolder: (id: string, name: string) => {
@@ -807,8 +826,23 @@ export const dbOps = {
   },
 
   deleteMediaFolder: (id: string) => {
-    db.prepare('UPDATE tracks SET media_folder_id = NULL WHERE media_folder_id = ?').run(id);
-    return db.prepare('DELETE FROM media_folders WHERE id = ?').run(id);
+    // Find all recursive descendant folder IDs
+    const folderIdsToDelete: string[] = [id];
+    let index = 0;
+    while (index < folderIdsToDelete.length) {
+      const currentId = folderIdsToDelete[index];
+      const children = db.prepare('SELECT id FROM media_folders WHERE parent_id = ?').all(currentId) as { id: string }[];
+      for (const child of children) {
+        if (!folderIdsToDelete.includes(child.id)) {
+          folderIdsToDelete.push(child.id);
+        }
+      }
+      index++;
+    }
+
+    const placeholders = folderIdsToDelete.map(() => '?').join(',');
+    db.prepare(`UPDATE tracks SET media_folder_id = NULL WHERE media_folder_id IN (${placeholders})`).run(...folderIdsToDelete);
+    return db.prepare(`DELETE FROM media_folders WHERE id IN (${placeholders})`).run(...folderIdsToDelete);
   },
 
   moveTrackToMediaFolder: (trackUuid: string, folderId: string | null) => {

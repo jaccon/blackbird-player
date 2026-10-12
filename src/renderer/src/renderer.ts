@@ -24,9 +24,12 @@ export interface TrackMetadata {
 export interface MediaFolder {
   id: string;
   name: string;
-  type: 'music' | 'video';
+  type: 'music' | 'video' | 'photo';
   created_at?: string;
+  parent_id?: string | null;
+  parentId?: string | null;
   trackCount?: number;
+  subfolderCount?: number;
 }
 
 export interface PluginInfo {
@@ -184,10 +187,36 @@ let btnNewPlaylist: HTMLElement
 let isVaultUnlocked = false
 let currentHiddenFolderId: string | null = null
 
-// Media Folders State (Musics & All Videos)
+// Media Folders State (Musics, All Videos & Photos)
 let currentMusicFolderId: string | null = null
 let currentVideoFolderId: string | null = null
+let currentPhotoFolderId: string | null = null
 let mediaFilterMode: 'all' | 'flat' = 'all'
+let photoFilterMode: 'all' | 'flat' = 'all'
+
+function getFolderBreadcrumbs(folderId: string | null, allFolders: MediaFolder[]): MediaFolder[] {
+  const crumbs: MediaFolder[] = []
+  let curr = folderId ? allFolders.find(f => f.id === folderId) : null
+  const visited = new Set<string>()
+  while (curr && !visited.has(curr.id)) {
+    visited.add(curr.id)
+    crumbs.unshift(curr)
+    const pId = curr.parentId || curr.parent_id
+    curr = pId ? allFolders.find(f => f.id === pId) : null
+  }
+  return crumbs
+}
+
+function buildFolderTree(folders: MediaFolder[], parentId: string | null = null, depth: number = 0): Array<{ folder: MediaFolder; depth: number }> {
+  const result: Array<{ folder: MediaFolder; depth: number }> = []
+  const children = folders.filter(f => (f.parentId || f.parent_id || null) === parentId)
+  children.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+  for (const child of children) {
+    result.push({ folder: child, depth })
+    result.push(...buildFolderTree(folders, child.id, depth + 1))
+  }
+  return result
+}
 
 // Modal Elements
 let modalContainer: HTMLElement
@@ -237,7 +266,7 @@ let inputQuickMediaFolderName: HTMLInputElement
 let btnQuickCreateMediaFolder: HTMLElement
 let moveToFolderItems: HTMLElement
 let pendingMoveTracksUuids: string[] = []
-let pendingMoveMediaType: 'music' | 'video' = 'music'
+let pendingMoveMediaType: 'music' | 'video' | 'photo' = 'music'
 
 // Radio Modal Elements
 let radioModal: HTMLElement
@@ -439,8 +468,12 @@ async function init(): Promise<void> {
           (window as any).showRadioToast(`Pasta "${name}" criada e ${pendingMoveTracksUuids.length} arquivo(s) movido(s)!`)
         }
 
-        const allMediaTracks = pendingMoveMediaType === 'music' ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
-        await renderTrackList(allMediaTracks, lastListViewTitle)
+        if (pendingMoveMediaType === 'photo') {
+          renderPhotosView()
+        } else {
+          const allMediaTracks = pendingMoveMediaType === 'music' ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+          await renderTrackList(allMediaTracks, lastListViewTitle)
+        }
       } catch (e: any) {
         alert(`Erro ao criar pasta: ${e.message}`)
       }
@@ -478,6 +511,8 @@ async function init(): Promise<void> {
     // Photos button click – show image files
     btnPhotos.addEventListener('click', () => {
       selectedTrackUuids.clear()
+      currentPhotoFolderId = null
+      photoFilterMode = 'all'
       setActiveNav('btn-photos')
       renderPhotosView()
     })
@@ -932,7 +967,7 @@ function promptMediaFolderName(title: string, defaultValue: string = '', confirm
   })
 }
 
-async function openMoveToFolderModal(uuids: string[], type: 'music' | 'video'): Promise<void> {
+async function openMoveToFolderModal(uuids: string[], type: 'music' | 'video' | 'photo'): Promise<void> {
   pendingMoveTracksUuids = uuids
   pendingMoveMediaType = type
   
@@ -964,19 +999,22 @@ async function openMoveToFolderModal(uuids: string[], type: 'music' | 'video'): 
     </div>
   `
 
-  folders.forEach(f => {
+  const folderTree = buildFolderTree(folders)
+  folderTree.forEach(({ folder: f, depth }) => {
+    const indent = depth * 18
+    const prefix = depth > 0 ? `<span style="color: var(--accent); opacity: 0.7; margin-right: 5px;">↳</span>` : ''
     html += `
-      <div class="move-folder-item" data-folder-id="${f.id}" data-folder-name="${f.name}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-radius: var(--radius-md); background: var(--bg-card); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 32px; height: 32px; border-radius: 8px; background: var(--glass); display: flex; align-items: center; justify-content: center; color: var(--accent);">
-            <i data-lucide="folder" style="width: 16px; height: 16px;"></i>
+      <div class="move-folder-item" data-folder-id="${f.id}" data-folder-name="${f.name}" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; padding-left: ${14 + indent}px; border-radius: var(--radius-md); background: var(--bg-card); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s;">
+        <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: var(--glass); display: flex; align-items: center; justify-content: center; color: var(--accent); flex-shrink: 0;">
+            <i data-lucide="${depth > 0 ? 'folder-symlink' : 'folder'}" style="width: 16px; height: 16px;"></i>
           </div>
-          <div>
-            <div style="font-size: 13px; font-weight: 600; color: var(--text-main);">${f.name}</div>
-            <div style="font-size: 11px; color: var(--text-muted);">${f.trackCount || 0} arquivos</div>
+          <div style="overflow: hidden;">
+            <div style="font-size: 13px; font-weight: 600; color: var(--text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${prefix}${f.name}</div>
+            <div style="font-size: 11px; color: var(--text-muted);">${f.trackCount || 0} arquivos${f.subfolderCount ? ` • ${f.subfolderCount} subpastas` : ''}</div>
           </div>
         </div>
-        <i data-lucide="chevron-right" style="width: 16px; height: 16px; color: var(--text-muted);"></i>
+        <i data-lucide="chevron-right" style="width: 16px; height: 16px; color: var(--text-muted); flex-shrink: 0;"></i>
       </div>
     `
   })
@@ -1016,8 +1054,12 @@ async function openMoveToFolderModal(uuids: string[], type: 'music' | 'video'): 
 
         closeModal()
 
-        const allMediaTracks = pendingMoveMediaType === 'music' ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
-        await renderTrackList(allMediaTracks, lastListViewTitle)
+        if (pendingMoveMediaType === 'photo') {
+          renderPhotosView()
+        } else {
+          const allMediaTracks = pendingMoveMediaType === 'music' ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+          await renderTrackList(allMediaTracks, lastListViewTitle)
+        }
       } catch (err) {
         console.error('Failed to move tracks to folder:', err)
       }
@@ -1590,7 +1632,7 @@ async function handleQuickHideTrack(uuid: string): Promise<void> {
 }
 ;(window as any).handleQuickHideTrack = handleQuickHideTrack
 
-async function handleMoveTrackToFolder(trackUuid: string, type: 'music' | 'video'): Promise<void> {
+async function handleMoveTrackToFolder(trackUuid: string, type: 'music' | 'video' | 'photo'): Promise<void> {
   await openMoveToFolderModal([trackUuid], type)
 }
 ;(window as any).handleMoveTrackToFolder = handleMoveTrackToFolder
@@ -2073,28 +2115,121 @@ async function handleDeletePhoto(uuid: string): Promise<void> {
 }
 ;(window as any).handleDeletePhoto = handleDeletePhoto
 
-function renderPhotosView(): void {
-  const images = library.filter(isPhotoTrack)
+async function renderPhotosView(): Promise<void> {
+  let photoFolders: MediaFolder[] = []
+  try {
+    photoFolders = await (window as any).api.getMediaFolders('photo')
+  } catch (e) {
+    console.error('Failed to get photo folders:', e)
+  }
+
+  const activeFolder = currentPhotoFolderId ? photoFolders.find(f => f.id === currentPhotoFolderId) : null
+  if (currentPhotoFolderId && !activeFolder) {
+    currentPhotoFolderId = null
+  }
+  const effectiveFolderId = activeFolder ? activeFolder.id : null
+
+  const allImages = library.filter(isPhotoTrack)
+  let displayedImages = allImages
+  if (effectiveFolderId) {
+    displayedImages = allImages.filter(img => img.mediaFolderId === effectiveFolderId)
+  } else if (photoFilterMode === 'all') {
+    displayedImages = allImages.filter(img => !img.mediaFolderId)
+  }
+
+  const subfolders = photoFolders.filter(f => (f.parentId || f.parent_id || null) === (effectiveFolderId || null))
+  const breadcrumbs = getFolderBreadcrumbs(effectiveFolderId, photoFolders)
 
   let contentHtml = ''
-  if (images.length === 0) {
-    contentHtml = `
-      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: var(--text-muted); gap: 16px;">
-        <i data-lucide="image" style="width: 48px; height: 48px; opacity: 0.5;"></i>
-        <p>No photos imported yet. Scan a folder or import images to see them here.</p>
+
+  // Subfolders Grid (when in 'all' mode)
+  let subfoldersHtml = ''
+  if (photoFilterMode === 'all' && subfolders.length > 0) {
+    subfoldersHtml = `
+      <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+        <i data-lucide="folder" style="width: 14px; height: 14px; color: #ffaa00;"></i>
+        <span>${effectiveFolderId ? 'Subpastas de Fotos' : 'Pastas de Fotos'} (${subfolders.length})</span>
+      </div>
+      <div class="media-folder-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-bottom: 24px;">
+        ${subfolders.map(f => `
+          <div class="media-folder-card photo-folder-card" data-folder-id="${f.id}" data-folder-name="${f.name}" title="Pasta: ${f.name} (Clique para abrir, arraste fotos para mover)">
+            <div class="media-folder-icon" style="color: #ffaa00;">
+              <i data-lucide="${f.subfolderCount ? 'folder-tree' : 'folder'}" style="width: 22px; height: 22px;"></i>
+            </div>
+            <div class="media-folder-info" style="overflow: hidden;">
+              <div class="media-folder-name" style="font-size: 13.5px; font-weight: 600; color: var(--text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${f.name}</div>
+              <div class="media-folder-count" style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                <span>${f.trackCount || 0} ${f.trackCount === 1 ? 'foto' : 'fotos'}</span>
+                ${f.subfolderCount ? `<span> &bull; ${f.subfolderCount} ${f.subfolderCount === 1 ? 'subpasta' : 'subpastas'}</span>` : ''}
+              </div>
+            </div>
+            <div class="media-folder-actions" style="display: flex; gap: 4px;">
+              <button class="btn-icon circle-small btn-add-photo-subfolder" data-id="${f.id}" data-name="${f.name}" title="Criar Subpasta nesta pasta" style="background: var(--glass); width: 28px; height: 28px; color: #ffaa00;">
+                <i data-lucide="folder-plus" style="width: 13px; height: 13px;"></i>
+              </button>
+              <button class="btn-icon circle-small btn-rename-photo-folder-item" data-id="${f.id}" data-name="${f.name}" title="Renomear Pasta" style="background: var(--glass); width: 28px; height: 28px;">
+                <i data-lucide="edit-2" style="width: 13px; height: 13px;"></i>
+              </button>
+              <button class="btn-icon circle-small btn-delete-photo-folder-item" data-id="${f.id}" data-name="${f.name}" title="Excluir Pasta" style="background: var(--glass); width: 28px; height: 28px; color: #ff4c4c;">
+                <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i>
+              </button>
+            </div>
+          </div>
+        `).join('')}
       </div>
     `
-  } else {
-    const gridItems = images.map((img, idx) => {
+  }
+
+  // Folder Up Row (when inside a folder)
+  let folderUpHtml = ''
+  if (effectiveFolderId && activeFolder) {
+    const parentFolder = (activeFolder.parentId || activeFolder.parent_id) ? photoFolders.find(f => f.id === (activeFolder.parentId || activeFolder.parent_id)) : null
+    folderUpHtml = `
+      <div class="track-item folder-up-row" id="row-photo-folder-up" title="Clique para voltar ou arraste fotos aqui para mover para o nível acima" style="margin-bottom: 16px;">
+        <div class="track-num" style="display: flex; align-items: center; justify-content: center; color: var(--accent);">
+          <i data-lucide="corner-left-up" style="width: 16px; height: 16px;"></i>
+        </div>
+        <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+          <span style="font-weight: 700; font-size: 14px; line-height: 1;">..</span>
+        </div>
+        <div class="track-name-cell" style="overflow: hidden;">
+          <div class="track-name" style="font-weight: 600; color: var(--text-main); font-size: 13.5px;">.. (Nível Superior / ${parentFolder ? parentFolder.name : 'Raiz'})</div>
+          <div class="track-list-artist" style="color: var(--accent); font-size: 11px;">Clique para subir ou arraste fotos aqui para desvincular desta pasta</div>
+        </div>
+        <div class="track-album-cell" style="color: var(--text-muted); font-size: 12px;">${parentFolder ? 'Pasta Pai' : 'Pasta Raiz'}</div>
+        <div class="track-kind-cell" style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Nível Acima</div>
+        <div class="track-duration" style="display: flex; align-items: center; justify-content: flex-end; color: var(--text-muted); font-size: 12px; padding-right: 8px;">
+          <i data-lucide="arrow-left" style="width: 14px; height: 14px;"></i>
+        </div>
+      </div>
+    `
+  }
+
+  // Photos Grid
+  let photosGridHtml = ''
+  if (displayedImages.length > 0) {
+    if (photoFilterMode === 'all' && subfolders.length > 0) {
+      photosGridHtml += `
+        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+          <i data-lucide="image" style="width: 14px; height: 14px;"></i>
+          <span>Fotos nesta pasta (${displayedImages.length})</span>
+        </div>
+      `
+    }
+    const gridItems = displayedImages.map((img, idx) => {
       const safePath = encodeURI(img.filePath.replace(/\\/g, '/')).replace(/#/g, '%23').replace(/\?/g, '%3F')
       const imgUrl = `local://${safePath}`
+      const folderObj = img.mediaFolderId ? photoFolders.find(f => f.id === img.mediaFolderId) : null
       return `
-        <div class="photo-card" data-index="${idx}" data-uuid="${img.uuid}" style="position: relative; border-radius: 12px; overflow: hidden; background: var(--glass); border: 1px solid rgba(255,255,255,0.08); aspect-ratio: 1; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 4px 30px rgba(0,0,0,0.2);">
+        <div class="photo-card" data-index="${idx}" data-uuid="${img.uuid}" draggable="true" style="position: relative; border-radius: 12px; overflow: hidden; background: var(--glass); border: 1px solid rgba(255,255,255,0.08); aspect-ratio: 1; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 4px 30px rgba(0,0,0,0.2);">
           <img src="${imgUrl}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s ease;" />
           <div class="photo-overlay" style="position: absolute; inset: 0; background: rgba(0,0,0,0.6); opacity: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 12px; transition: opacity 0.3s ease; backdrop-filter: blur(2px);">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <span style="font-size: 10px; background: rgba(255,255,255,0.15); color: #fff; padding: 2px 6px; border-radius: 6px; text-transform: uppercase; font-weight: 600;">${img.format || 'IMG'}</span>
               <div style="display: flex; gap: 6px; align-items: center;">
+                <button class="btn-icon circle-small btn-move-photo-folder" style="background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; transition: all 0.2s;" title="Organizar em Pasta" onclick="event.stopPropagation(); window.handleMoveTrackToFolder('${img.uuid}', 'photo')">
+                  <i data-lucide="folder-symlink" style="width: 14px; height: 14px;"></i>
+                </button>
                 <button class="btn-icon circle-small" style="background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; transition: all 0.2s;" title="Add to Playlist" onclick="event.stopPropagation(); window.handleOpenAddToPlaylistModal('${img.uuid}')">
                   <i data-lucide="list-plus" style="width: 14px; height: 14px;"></i>
                 </button>
@@ -2105,26 +2240,101 @@ function renderPhotosView(): void {
             </div>
             <div class="photo-details">
               <div style="font-size: 12px; font-weight: 600; color: #fff; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${img.title || img.fileName}</div>
-              <div style="font-size: 10px; color: rgba(255,255,255,0.6); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${img.filePath}">${img.filePath}</div>
+              ${folderObj ? `<div style="font-size: 10px; color: #ffaa00; margin-top: 2px;"><i data-lucide="folder" style="width: 10px; height: 10px; display: inline-block; vertical-align: middle;"></i> ${folderObj.name}</div>` : ''}
+              <div style="font-size: 10px; color: rgba(255,255,255,0.6); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; margin-top: 2px;" title="${img.filePath}">${img.filePath}</div>
             </div>
           </div>
         </div>
       `
     }).join('')
 
-    contentHtml = `
+    photosGridHtml += `
       <div class="photo-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px;">
         ${gridItems}
       </div>
     `
+  } else if (subfolders.length === 0) {
+    photosGridHtml = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 260px; color: var(--text-muted); gap: 14px; border: 1px dashed var(--border); border-radius: var(--radius-md); background: var(--glass);">
+        <i data-lucide="${effectiveFolderId ? 'folder-open' : 'image'}" style="width: 44px; height: 44px; opacity: 0.4; color: ${effectiveFolderId ? '#ffaa00' : 'inherit'};"></i>
+        <p style="font-size: 14px; font-weight: 500;">${effectiveFolderId ? 'Esta pasta de fotos está vazia.' : 'Nenhuma foto encontrada.'}</p>
+        <p style="font-size: 12px; color: var(--text-muted);">${effectiveFolderId ? 'Arraste fotos aqui para organizá-las ou crie uma subpasta.' : 'Importe fotos para sua biblioteca ou crie pastas.'}</p>
+      </div>
+    `
   }
+
+  contentHtml = `
+    ${folderUpHtml}
+    ${subfoldersHtml}
+    ${photosGridHtml}
+  `
 
   contentView.innerHTML = `
     <div class="photo-list-view">
-      <div class="view-header" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px;">
+      <div class="view-header" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 14px; flex-wrap: wrap; gap: 12px;">
         <div>
-          <h2 class="view-title">Photos</h2>
-          <p class="view-subtitle">${images.length} pictures available</p>
+          <h2 class="view-title" style="display: flex; align-items: center; gap: 10px;">
+            ${effectiveFolderId && activeFolder
+              ? `<i data-lucide="folder-open" style="color: #ffaa00; width: 26px; height: 26px;"></i> ${activeFolder.name}`
+              : `<i data-lucide="image" style="color: var(--accent); width: 26px; height: 26px;"></i> Photos`
+            }
+          </h2>
+          <p class="view-subtitle">
+            ${effectiveFolderId && activeFolder
+              ? `${displayedImages.length} fotos nesta pasta &bull; ${subfolders.length} subpastas`
+              : `${allImages.length} fotos disponíveis (${photoFolders.filter(f => !f.parentId && !f.parent_id).length} pastas, ${displayedImages.length} na raiz)`
+            }
+          </p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <button class="btn-primary" id="btn-new-photo-folder" style="display: flex; align-items: center; gap: 6px; padding: 7px 15px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; background: #ffaa00; color: #000;">
+            <i data-lucide="folder-plus" style="width: 15px; height: 15px;"></i> ${effectiveFolderId ? 'Nova Subpasta' : 'Nova Pasta'}
+          </button>
+          ${effectiveFolderId && activeFolder ? `
+            <button class="btn-secondary" id="btn-rename-photo-folder" style="display: flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 8px; font-size: 13px; font-weight: 600;">
+              <i data-lucide="edit-2" style="width: 13px; height: 13px;"></i> Renomear Pasta
+            </button>
+            <button class="btn-secondary" id="btn-delete-photo-folder" style="display: flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #ff4c4c;">
+              <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i> Excluir Pasta
+            </button>
+          ` : ''}
+        </div>
+      </div>
+
+      <!-- Photos Breadcrumb Bar -->
+      <div class="fm-breadcrumb-bar">
+        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+          <div class="fm-breadcrumb-item ${!effectiveFolderId ? 'active' : ''}" id="btn-photo-breadcrumb-root" title="Ir para a raiz de Fotos (Arraste fotos aqui para mover para a raiz)">
+            <i data-lucide="home" style="width: 14px; height: 14px;"></i>
+            <span>Fotos</span>
+          </div>
+          ${breadcrumbs.map((crumb, idx, arr) => `
+            <i data-lucide="chevron-right" style="width: 13px; height: 13px; color: var(--text-muted); opacity: 0.6;"></i>
+            <div class="fm-breadcrumb-item btn-breadcrumb-photo-folder ${idx === arr.length - 1 ? 'active' : ''}" data-folder-id="${crumb.id}" title="Ir para a pasta ${crumb.name}" style="${idx === arr.length - 1 ? 'color: #ffaa00;' : 'cursor: pointer;'}">
+              <i data-lucide="folder" style="width: 14px; height: 14px;"></i>
+              <span>${crumb.name}</span>
+            </div>
+          `).join('')}
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; margin-left: auto;">
+          ${!effectiveFolderId ? `
+            <div class="media-filter-tabs" style="margin: 0;">
+              <button class="media-filter-tab ${photoFilterMode === 'all' ? 'active' : ''}" id="tab-photo-filter-all" title="Gerenciador: Pastas e fotos na raiz">
+                <i data-lucide="folder" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i>
+                Pastas & Raiz (${photoFolders.filter(f => !f.parentId && !f.parent_id).length} pastas)
+              </button>
+              <button class="media-filter-tab ${photoFilterMode === 'flat' ? 'active' : ''}" id="tab-photo-filter-flat" title="Lista plana com todas as fotos">
+                <i data-lucide="list" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i>
+                Todas as Fotos (${allImages.length})
+              </button>
+            </div>
+          ` : `
+            <span style="font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="info" style="width: 13px; height: 13px; color: var(--accent);"></i>
+              Arraste fotos para <strong>.. (Nível Superior)</strong> para mover para o nível acima
+            </span>
+          `}
         </div>
       </div>
       
@@ -2148,6 +2358,10 @@ function renderPhotosView(): void {
       .btn-delete-photo:hover {
         transform: scale(1.1);
         background: rgba(255,75,75,0.4) !important;
+      }
+      .btn-move-photo-folder:hover {
+        transform: scale(1.1);
+        background: rgba(255, 170, 0, 0.35) !important;
       }
       .lightbox-btn {
         background: rgba(255, 255, 255, 0.05);
@@ -2184,13 +2398,316 @@ function renderPhotosView(): void {
 
   if ((window as any).lucide) (window as any).lucide.createIcons()
 
-  // Setup Lightbox Listeners
+  // 1. Create New Folder / Subfolder Button
+  document.getElementById('btn-new-photo-folder')?.addEventListener('click', async () => {
+    const promptTitle = effectiveFolderId && activeFolder 
+      ? `Nova Subpasta em "${activeFolder.name}"` 
+      : 'Nova Pasta de Fotos'
+    const name = await promptMediaFolderName(promptTitle, '', effectiveFolderId ? 'Criar Subpasta' : 'Criar Pasta')
+    if (name && name.trim()) {
+      try {
+        await (window as any).api.createMediaFolder(name.trim(), 'photo', effectiveFolderId || null)
+        if (typeof (window as any).showRadioToast === 'function') {
+          (window as any).showRadioToast(`Pasta "${name.trim()}" criada com sucesso!`)
+        }
+        await renderPhotosView()
+      } catch (err) {
+        console.error('Failed to create photo folder:', err)
+      }
+    }
+  })
+
+  // 2. Active Folder Controls (inside folder view)
+  document.getElementById('btn-rename-photo-folder')?.addEventListener('click', async () => {
+    if (!effectiveFolderId || !activeFolder) return
+    const newName = await promptMediaFolderName('Renomear Pasta', activeFolder.name, 'Salvar')
+    if (newName && newName.trim() && newName.trim() !== activeFolder.name) {
+      try {
+        await (window as any).api.renameMediaFolder(effectiveFolderId, newName.trim())
+        if (typeof (window as any).showRadioToast === 'function') {
+          (window as any).showRadioToast(`Pasta renomeada para "${newName.trim()}"!`)
+        }
+        await renderPhotosView()
+      } catch (err) {
+        console.error('Failed to rename photo folder:', err)
+      }
+    }
+  })
+
+  document.getElementById('btn-delete-photo-folder')?.addEventListener('click', async () => {
+    if (!effectiveFolderId || !activeFolder) return
+    if (confirm(`Deseja remover a pasta "${activeFolder.name}" e suas subpastas?\n\nAs fotos não serão apagadas do computador, apenas desvinculadas desta pasta.`)) {
+      try {
+        await (window as any).api.deleteMediaFolder(effectiveFolderId)
+        library.forEach(t => {
+          if (t.mediaFolderId === effectiveFolderId) t.mediaFolderId = null
+        })
+        currentPhotoFolderId = null
+        try {
+          localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+        } catch {}
+        if (typeof (window as any).showRadioToast === 'function') {
+          (window as any).showRadioToast('Pasta excluída!')
+        }
+        await renderPhotosView()
+      } catch (err) {
+        console.error('Failed to delete photo folder:', err)
+      }
+    }
+  })
+
+  // 3. Subfolder Row Actions: Add Subfolder in Row
+  document.querySelectorAll('.btn-add-photo-subfolder').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      const parentId = btn.getAttribute('data-id')!
+      const parentName = btn.getAttribute('data-name') || 'Pasta'
+      const name = await promptMediaFolderName(`Nova Subpasta em "${parentName}"`, '', 'Criar Subpasta')
+      if (name && name.trim()) {
+        try {
+          await (window as any).api.createMediaFolder(name.trim(), 'photo', parentId)
+          if (typeof (window as any).showRadioToast === 'function') {
+            (window as any).showRadioToast(`Subpasta "${name.trim()}" criada!`)
+          }
+          await renderPhotosView()
+        } catch (err) {
+          console.error('Failed to create photo subfolder:', err)
+        }
+      }
+    })
+  })
+
+  // 4. Rename Subfolder from Card
+  document.querySelectorAll('.btn-rename-photo-folder-item').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      const id = btn.getAttribute('data-id')!
+      const oldName = btn.getAttribute('data-name') || ''
+      const newName = await promptMediaFolderName('Renomear Pasta', oldName, 'Salvar')
+      if (newName && newName.trim() && newName.trim() !== oldName) {
+        try {
+          await (window as any).api.renameMediaFolder(id, newName.trim())
+          if (typeof (window as any).showRadioToast === 'function') {
+            (window as any).showRadioToast(`Pasta renomeada para "${newName.trim()}"!`)
+          }
+          await renderPhotosView()
+        } catch (err) {
+          console.error('Failed to rename photo folder:', err)
+        }
+      }
+    })
+  })
+
+  // 5. Delete Subfolder from Card
+  document.querySelectorAll('.btn-delete-photo-folder-item').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      const id = btn.getAttribute('data-id')!
+      const folderName = btn.getAttribute('data-name') || ''
+      if (confirm(`Deseja remover a pasta "${folderName}" e suas subpastas?\n\nAs fotos não serão apagadas do computador, apenas desvinculadas desta pasta.`)) {
+        try {
+          await (window as any).api.deleteMediaFolder(id)
+          library.forEach(t => {
+            if (t.mediaFolderId === id) t.mediaFolderId = null
+          })
+          if (currentPhotoFolderId === id) currentPhotoFolderId = null
+          try {
+            localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+          } catch {}
+          if (typeof (window as any).showRadioToast === 'function') {
+            (window as any).showRadioToast(`Pasta "${folderName}" excluída!`)
+          }
+          await renderPhotosView()
+        } catch (err) {
+          console.error('Failed to delete photo folder:', err)
+        }
+      }
+    })
+  })
+
+  // 6. Click & Drag-and-Drop on Photo Folder Cards
+  document.querySelectorAll('.photo-folder-card').forEach(card => {
+    const folderId = card.getAttribute('data-folder-id')!
+    const folderName = card.getAttribute('data-folder-name') || 'Pasta'
+
+    card.addEventListener('click', async (e) => {
+      if ((e.target as HTMLElement).closest('.btn-add-photo-subfolder, .btn-rename-photo-folder-item, .btn-delete-photo-folder-item')) return
+      currentPhotoFolderId = folderId
+      await renderPhotosView()
+    })
+
+    card.addEventListener('dragover', (e) => {
+      e.preventDefault()
+      card.classList.add('drag-target-hover')
+    })
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-target-hover')
+    })
+    card.addEventListener('drop', async (e) => {
+      e.preventDefault()
+      card.classList.remove('drag-target-hover')
+      const photoUuid = (e as DragEvent).dataTransfer?.getData('track-uuid')
+      if (!photoUuid) return
+
+      try {
+        await (window as any).api.moveTrackToMediaFolder(photoUuid, folderId)
+        const trk = library.find(t => t.uuid === photoUuid)
+        if (trk) trk.mediaFolderId = folderId
+        try {
+          localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+        } catch {}
+        if (typeof (window as any).showRadioToast === 'function') {
+          (window as any).showRadioToast(`Foto movida para "${folderName}"!`)
+        }
+        await renderPhotosView()
+      } catch (err) {
+        console.error('Failed to move photo to folder:', err)
+      }
+    })
+  })
+
+  // 7. Folder Up Row Navigation & Drop
+  const rowPhotoUp = document.getElementById('row-photo-folder-up')
+  if (rowPhotoUp && activeFolder) {
+    const parentFolderId: string | null = (activeFolder.parentId || activeFolder.parent_id || null)
+    rowPhotoUp.addEventListener('click', async () => {
+      currentPhotoFolderId = parentFolderId
+      await renderPhotosView()
+    })
+
+    rowPhotoUp.addEventListener('dragover', (e) => {
+      e.preventDefault()
+      rowPhotoUp.classList.add('drag-target-hover')
+    })
+    rowPhotoUp.addEventListener('dragleave', () => {
+      rowPhotoUp.classList.remove('drag-target-hover')
+    })
+    rowPhotoUp.addEventListener('drop', async (e) => {
+      e.preventDefault()
+      rowPhotoUp.classList.remove('drag-target-hover')
+      const photoUuid = (e as DragEvent).dataTransfer?.getData('track-uuid')
+      if (!photoUuid) return
+
+      try {
+        await (window as any).api.moveTrackToMediaFolder(photoUuid, parentFolderId)
+        const trk = library.find(t => t.uuid === photoUuid)
+        if (trk) trk.mediaFolderId = parentFolderId
+        try {
+          localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+        } catch {}
+        if (typeof (window as any).showRadioToast === 'function') {
+          (window as any).showRadioToast(parentFolderId ? 'Foto movida para a pasta pai!' : 'Foto movida para a raiz!')
+        }
+        await renderPhotosView()
+      } catch (err) {
+        console.error('Failed to move photo up:', err)
+      }
+    })
+  }
+
+  // 8. Breadcrumbs Navigation & Drop
+  const breadcrumbPhotoRoot = document.getElementById('btn-photo-breadcrumb-root')
+  if (breadcrumbPhotoRoot) {
+    breadcrumbPhotoRoot.addEventListener('click', async () => {
+      if (!effectiveFolderId) return
+      currentPhotoFolderId = null
+      photoFilterMode = 'all'
+      await renderPhotosView()
+    })
+
+    breadcrumbPhotoRoot.addEventListener('dragover', (e) => {
+      e.preventDefault()
+      breadcrumbPhotoRoot.classList.add('drag-target-hover')
+    })
+    breadcrumbPhotoRoot.addEventListener('dragleave', () => {
+      breadcrumbPhotoRoot.classList.remove('drag-target-hover')
+    })
+    breadcrumbPhotoRoot.addEventListener('drop', async (e) => {
+      e.preventDefault()
+      breadcrumbPhotoRoot.classList.remove('drag-target-hover')
+      const photoUuid = (e as DragEvent).dataTransfer?.getData('track-uuid')
+      if (!photoUuid) return
+
+      try {
+        await (window as any).api.moveTrackToMediaFolder(photoUuid, null)
+        const trk = library.find(t => t.uuid === photoUuid)
+        if (trk) trk.mediaFolderId = null
+        try {
+          localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+        } catch {}
+        if (typeof (window as any).showRadioToast === 'function') {
+          (window as any).showRadioToast('Foto movida para a raiz!')
+        }
+        await renderPhotosView()
+      } catch (err) {
+        console.error('Failed to unfile photo:', err)
+      }
+    })
+  }
+
+  document.querySelectorAll('.btn-breadcrumb-photo-folder').forEach(btn => {
+    const folderId = btn.getAttribute('data-folder-id')!
+    btn.addEventListener('click', async () => {
+      if (folderId === effectiveFolderId) return
+      currentPhotoFolderId = folderId
+      await renderPhotosView()
+    })
+
+    btn.addEventListener('dragover', (e) => {
+      e.preventDefault()
+      btn.classList.add('drag-target-hover')
+    })
+    btn.addEventListener('dragleave', () => {
+      btn.classList.remove('drag-target-hover')
+    })
+    btn.addEventListener('drop', async (e) => {
+      e.preventDefault()
+      btn.classList.remove('drag-target-hover')
+      const photoUuid = (e as DragEvent).dataTransfer?.getData('track-uuid')
+      if (!photoUuid) return
+
+      try {
+        await (window as any).api.moveTrackToMediaFolder(photoUuid, folderId)
+        const trk = library.find(t => t.uuid === photoUuid)
+        if (trk) trk.mediaFolderId = folderId
+        try {
+          localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+        } catch {}
+        if (typeof (window as any).showRadioToast === 'function') {
+          (window as any).showRadioToast('Foto movida com sucesso!')
+        }
+        await renderPhotosView()
+      } catch (err) {
+        console.error('Failed to move photo via breadcrumb:', err)
+      }
+    })
+  })
+
+  // 9. View Filter Switch Tabs
+  document.getElementById('tab-photo-filter-all')?.addEventListener('click', async () => {
+    photoFilterMode = 'all'
+    await renderPhotosView()
+  })
+  document.getElementById('tab-photo-filter-flat')?.addEventListener('click', async () => {
+    photoFilterMode = 'flat'
+    await renderPhotosView()
+  })
+
+  // 10. Photo Cards Dragstart
+  document.querySelectorAll('.photo-card[data-uuid]').forEach(card => {
+    card.addEventListener('dragstart', (e) => {
+      const uuid = card.getAttribute('data-uuid')!
+      ;(e as DragEvent).dataTransfer?.setData('track-uuid', uuid)
+    })
+  })
+
+  // 11. Setup Lightbox Listeners
   let activeIndex = -1
   const cards = document.querySelectorAll('.photo-card')
   
   const showLightbox = (index: number) => {
     activeIndex = index
-    const img = images[activeIndex]
+    const img = displayedImages[activeIndex]
     if (!img) return
 
     let lightbox = document.getElementById('photo-lightbox')
@@ -2217,7 +2734,7 @@ function renderPhotosView(): void {
     const imgUrl = `local://${safePath}`
 
     let navButtons = ''
-    if (images.length > 1) {
+    if (displayedImages.length > 1) {
       navButtons = `
         <button class="lightbox-btn lightbox-arrow-left" id="btn-prev-photo">
           <i data-lucide="chevron-left"></i>
@@ -2267,13 +2784,13 @@ function renderPhotosView(): void {
 
     document.getElementById('btn-prev-photo')?.addEventListener('click', (e) => {
       e.stopPropagation()
-      const prevIdx = (activeIndex - 1 + images.length) % images.length
+      const prevIdx = (activeIndex - 1 + displayedImages.length) % displayedImages.length
       showLightbox(prevIdx)
     })
 
     document.getElementById('btn-next-photo')?.addEventListener('click', (e) => {
       e.stopPropagation()
-      const nextIdx = (activeIndex + 1) % images.length
+      const nextIdx = (activeIndex + 1) % displayedImages.length
       showLightbox(nextIdx)
     })
   }
@@ -3298,6 +3815,9 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
     if (isVideoView) currentVideoFolderId = null
   }
   const effectiveFolderId = currentFolder ? currentFolder.id : null
+  const subfolders = mediaFolders.filter(f => (f.parentId || f.parent_id || null) === (effectiveFolderId || null))
+  const rootFoldersCount = mediaFolders.filter(f => !f.parentId && !f.parent_id).length
+  const breadcrumbs = getFolderBreadcrumbs(effectiveFolderId, mediaFolders)
 
   // Determine tracks to display
   let displayedTracks = tracks
@@ -3381,13 +3901,13 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
           </h2>
           <p class="view-subtitle">
             ${effectiveFolderId && currentFolder 
-              ? `${displayedTracks.length} arquivos nesta pasta &bull; ${formatTime(totalDuration)} total`
+              ? `${displayedTracks.length} arquivos nesta pasta &bull; ${subfolders.length} subpastas &bull; ${formatTime(totalDuration)} total`
               : isAlbumView
                 ? `${displayedTracks.length} faixas neste álbum &bull; ${formatTime(totalDuration)} total`
                 : isArtistView
                   ? `${displayedTracks.length} faixas deste artista &bull; ${formatTime(totalDuration)} total`
                   : mediaType
-                    ? `${tracks.length} arquivos (${mediaFolders.length} pastas, ${displayedTracks.length} na raiz) &bull; ${formatTime(totalAllDuration)}`
+                    ? `${tracks.length} arquivos (${rootFoldersCount} pastas, ${displayedTracks.length} na raiz) &bull; ${formatTime(totalAllDuration)}`
                     : `${displayedTracks.length} faixas disponíveis &bull; ${formatTime(totalDuration)}`
             }
           </p>
@@ -3395,7 +3915,7 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
           ${mediaType ? `
             <button class="btn-primary" id="btn-new-media-folder" style="display: flex; align-items: center; gap: 6px; padding: 7px 15px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; background: #ffaa00; color: #000;">
-              <i data-lucide="folder-plus" style="width: 15px; height: 15px;"></i> Nova Pasta
+              <i data-lucide="folder-plus" style="width: 15px; height: 15px;"></i> ${effectiveFolderId ? 'Nova Subpasta' : 'Nova Pasta'}
             </button>
           ` : ''}
           ${effectiveFolderId && currentFolder ? `
@@ -3417,13 +3937,13 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
               <i data-lucide="home" style="width: 14px; height: 14px;"></i>
               <span>${isMusicView ? 'Músicas' : 'Vídeos'}</span>
             </div>
-            ${effectiveFolderId && currentFolder ? `
+            ${breadcrumbs.map((crumb, idx, arr) => `
               <i data-lucide="chevron-right" style="width: 13px; height: 13px; color: var(--text-muted); opacity: 0.6;"></i>
-              <div class="fm-breadcrumb-item active" style="color: #ffaa00;">
+              <div class="fm-breadcrumb-item btn-breadcrumb-folder ${idx === arr.length - 1 ? 'active' : ''}" data-folder-id="${crumb.id}" title="Ir para ${crumb.name}" style="${idx === arr.length - 1 ? 'color: #ffaa00;' : 'cursor: pointer;'}">
                 <i data-lucide="folder" style="width: 14px; height: 14px;"></i>
-                <span>${currentFolder.name}</span>
+                <span>${crumb.name}</span>
               </div>
-            ` : ''}
+            `).join('')}
           </div>
 
           <div style="display: flex; align-items: center; gap: 10px; margin-left: auto;">
@@ -3431,7 +3951,7 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
               <div class="media-filter-tabs" style="margin: 0;">
                 <button class="media-filter-tab ${mediaFilterMode === 'all' ? 'active' : ''}" data-filter="all" title="Gerenciador: Pastas e arquivos na raiz">
                   <i data-lucide="folder" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i>
-                  Pastas & Raiz (${mediaFolders.length} pastas)
+                  Pastas & Raiz (${rootFoldersCount} pastas)
                 </button>
                 <button class="media-filter-tab ${mediaFilterMode === 'flat' ? 'active' : ''}" data-filter="flat" title="Lista plana com todas as faixas">
                   <i data-lucide="list" style="width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i>
@@ -3441,7 +3961,7 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
             ` : `
               <span style="font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
                 <i data-lucide="info" style="width: 13px; height: 13px; color: var(--accent);"></i>
-                Arraste arquivos para <strong>.. (Nível Superior)</strong> para mover para a raiz
+                Arraste arquivos para <strong>.. (Nível Superior)</strong> para mover para o nível anterior
               </span>
             `}
           </div>
@@ -3481,7 +4001,7 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
         <div class="track-list">
           <!-- Folder Up Row (when inside folder) -->
           ${effectiveFolderId && currentFolder ? `
-            <div class="track-item folder-up-row" id="row-folder-up" title="Clique para voltar ou arraste arquivos aqui para mover para a raiz">
+            <div class="track-item folder-up-row" id="row-folder-up" title="Clique para voltar ou arraste arquivos aqui para mover para o nível anterior">
               <div class="track-num" style="display: flex; align-items: center; justify-content: center; color: var(--accent);">
                 <i data-lucide="corner-left-up" style="width: 16px; height: 16px;"></i>
               </div>
@@ -3489,10 +4009,10 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
                 <span style="font-weight: 700; font-size: 14px; line-height: 1;">..</span>
               </div>
               <div class="track-name-cell" style="overflow: hidden;">
-                <div class="track-name" style="font-weight: 600; color: var(--text-main); font-size: 13.5px;">.. (Nível Superior / Raiz)</div>
-                <div class="track-list-artist" style="color: var(--accent); font-size: 11px;">Clique para voltar ou arraste arquivos aqui para desvincular</div>
+                <div class="track-name" style="font-weight: 600; color: var(--text-main); font-size: 13.5px;">.. (Nível Superior / ${currentFolder.parentId || currentFolder.parent_id ? 'Pasta Pai' : 'Raiz'})</div>
+                <div class="track-list-artist" style="color: var(--accent); font-size: 11px;">Clique para subir ou arraste arquivos aqui para desvincular desta pasta</div>
               </div>
-              <div class="track-album-cell" style="color: var(--text-muted); font-size: 12px;">Pasta Raiz</div>
+              <div class="track-album-cell" style="color: var(--text-muted); font-size: 12px;">${currentFolder.parentId || currentFolder.parent_id ? 'Pasta Pai' : 'Pasta Raiz'}</div>
               <div class="track-kind-cell" style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Nível Acima</div>
               <div class="track-duration" style="display: flex; align-items: center; justify-content: flex-end; color: var(--text-muted); font-size: 12px; padding-right: 8px;">
                 <i data-lucide="arrow-left" style="width: 14px; height: 14px;"></i>
@@ -3500,26 +4020,34 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
             </div>
           ` : ''}
 
-          <!-- Folder Rows (when at root and in manager 'all' mode) -->
-          ${!effectiveFolderId && mediaType && mediaFilterMode === 'all' ? mediaFolders.map(f => `
+          <!-- Folder Rows (when in manager 'all' mode) -->
+          ${mediaType && mediaFilterMode === 'all' ? subfolders.map(f => `
             <div class="track-item folder-item-row" data-folder-id="${f.id}" data-folder-name="${f.name}" title="Pasta: ${f.name} (Clique para abrir, arraste faixas para mover)">
               <div class="track-num" style="display: flex; align-items: center; justify-content: center; color: #ffaa00;">
-                <i data-lucide="folder" style="width: 15px; height: 15px;"></i>
+                <i data-lucide="${f.subfolderCount ? 'folder-tree' : 'folder'}" style="width: 15px; height: 15px;"></i>
               </div>
               <div class="folder-thumb-icon">
-                <i data-lucide="folder" style="width: 17px; height: 17px;"></i>
+                <i data-lucide="${f.subfolderCount ? 'folder-tree' : 'folder'}" style="width: 17px; height: 17px;"></i>
               </div>
               <div class="track-name-cell" style="overflow: hidden;">
                 <div class="track-name" style="font-weight: 600; color: var(--text-main); font-size: 13.5px;">${f.name}</div>
-                <div class="track-list-artist" style="color: var(--text-muted); font-size: 11px;">Pasta de arquivos &bull; Clique para abrir</div>
+                <div class="track-list-artist" style="color: var(--text-muted); font-size: 11px;">${effectiveFolderId ? 'Subpasta' : 'Pasta de arquivos'} &bull; Clique para abrir</div>
               </div>
-              <div class="track-album-cell" style="color: var(--text-muted); font-size: 12px;">
+              <div class="track-album-cell" style="color: var(--text-muted); font-size: 12px; display: flex; gap: 6px; align-items: center;">
                 <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255, 170, 0, 0.12); color: #ffaa00; border: 1px solid rgba(255, 170, 0, 0.25); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600;">
                   <i data-lucide="layers" style="width: 10px; height: 10px;"></i> ${f.trackCount || 0} ${f.trackCount === 1 ? 'arquivo' : 'arquivos'}
                 </span>
+                ${f.subfolderCount ? `
+                  <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255, 255, 255, 0.08); color: var(--text-muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 500;">
+                    <i data-lucide="folder-tree" style="width: 10px; height: 10px;"></i> ${f.subfolderCount} ${f.subfolderCount === 1 ? 'subpasta' : 'subpastas'}
+                  </span>
+                ` : ''}
               </div>
-              <div class="track-kind-cell" style="font-size: 11px; color: #ffaa00; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Pasta</div>
-              <div class="track-duration" style="display: flex; align-items: center; justify-content: flex-end; gap: 8px;">
+              <div class="track-kind-cell" style="font-size: 11px; color: #ffaa00; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">${effectiveFolderId ? 'Subpasta' : 'Pasta'}</div>
+              <div class="track-duration" style="display: flex; align-items: center; justify-content: flex-end; gap: 6px;">
+                <button class="btn-icon circle-small btn-add-subfolder-row" data-id="${f.id}" data-name="${f.name}" title="Criar Subpasta nesta pasta" style="background: var(--glass); width: 28px; height: 28px; color: #ffaa00;">
+                  <i data-lucide="folder-plus" style="width: 13px; height: 13px;"></i>
+                </button>
                 <button class="btn-icon circle-small btn-rename-media-folder" data-id="${f.id}" data-name="${f.name}" title="Renomear Pasta" style="background: var(--glass); width: 28px; height: 28px;">
                   <i data-lucide="edit-2" style="width: 13px; height: 13px;"></i>
                 </button>
@@ -3531,11 +4059,11 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
           `).join('') : ''}
 
           <!-- Empty State (if no folders and no tracks, or inside empty folder) -->
-          ${displayedTracks.length === 0 && (!mediaType || effectiveFolderId || mediaFolders.length === 0) ? `
+          ${displayedTracks.length === 0 && (!mediaType || subfolders.length === 0) ? `
             <div style="padding: 40px; text-align: center; color: var(--text-muted); border: 1px dashed var(--border); border-radius: var(--radius-md); background: var(--glass); margin-top: 8px;">
               <i data-lucide="${effectiveFolderId ? 'folder-open' : 'music'}" style="width: 36px; height: 36px; opacity: 0.35; margin-bottom: 10px; color: ${effectiveFolderId ? '#ffaa00' : 'inherit'};"></i>
               <p style="font-size: 14px; font-weight: 500;">${effectiveFolderId ? 'Esta pasta está vazia.' : 'Nenhum arquivo encontrado aqui.'}</p>
-              <p style="font-size: 12px; margin-top: 4px; color: var(--text-muted);">${effectiveFolderId ? 'Arraste arquivos aqui para organizá-los nesta pasta.' : 'Adicione mídias à sua biblioteca para começar.'}</p>
+              <p style="font-size: 12px; margin-top: 4px; color: var(--text-muted);">${effectiveFolderId ? 'Arraste arquivos aqui para organizá-los nesta pasta ou crie uma subpasta.' : 'Adicione mídias à sua biblioteca para começar.'}</p>
             </div>
           ` : ''}
 
@@ -3660,18 +4188,20 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
 
   // Hook up Media Folder Controls
   if (mediaType) {
-    // 1. Create New Folder Button
+    // 1. Create New Folder / Subfolder Button
     document.getElementById('btn-new-media-folder')?.addEventListener('click', async () => {
       const name = await promptMediaFolderName(
-        isMusicView ? 'Nova Pasta de Músicas' : 'Nova Pasta de Vídeos',
+        effectiveFolderId 
+          ? (isMusicView ? 'Nova Subpasta de Músicas' : 'Nova Subpasta de Vídeos')
+          : (isMusicView ? 'Nova Pasta de Músicas' : 'Nova Pasta de Vídeos'),
         '',
-        'Criar Pasta'
+        effectiveFolderId ? 'Criar Subpasta' : 'Criar Pasta'
       )
       if (name && name.trim()) {
         try {
-          await (window as any).api.createMediaFolder(name.trim(), mediaType)
+          await (window as any).api.createMediaFolder(name.trim(), mediaType, effectiveFolderId || null)
           if (typeof (window as any).showRadioToast === 'function') {
-            (window as any).showRadioToast(`Pasta "${name.trim()}" criada com sucesso!`)
+            (window as any).showRadioToast(`${effectiveFolderId ? 'Subpasta' : 'Pasta'} "${name.trim()}" criada com sucesso!`)
           }
           await loadLibrary(false)
           const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
@@ -3680,6 +4210,33 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
           console.error('Failed to create media folder:', err)
         }
       }
+    })
+
+    // 1.1 Add Subfolder from Row Action Button
+    document.querySelectorAll('.btn-add-subfolder-row').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        const parentId = btn.getAttribute('data-id')!
+        const parentName = btn.getAttribute('data-name') || 'Pasta'
+        const name = await promptMediaFolderName(
+          `Nova Subpasta em "${parentName}"`,
+          '',
+          'Criar Subpasta'
+        )
+        if (name && name.trim()) {
+          try {
+            await (window as any).api.createMediaFolder(name.trim(), mediaType, parentId)
+            if (typeof (window as any).showRadioToast === 'function') {
+              (window as any).showRadioToast(`Subpasta "${name.trim()}" criada com sucesso!`)
+            }
+            await loadLibrary(false)
+            const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+            await renderTrackList(allMediaTracks, isMusicView ? 'Musics' : 'All Videos')
+          } catch (err) {
+            console.error('Failed to create subfolder:', err)
+          }
+        }
+      })
     })
 
     // 2. Folder Rows Navigation & Drag-and-Drop
@@ -3845,11 +4402,18 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
     const rowFolderUp = document.getElementById('row-folder-up')
     if (rowFolderUp) {
       rowFolderUp.addEventListener('click', async () => {
-        if (isMusicView) currentMusicFolderId = null
-        if (isVideoView) currentVideoFolderId = null
+        const targetParentId = currentFolder ? (currentFolder.parentId || currentFolder.parent_id || null) : null
+        if (isMusicView) currentMusicFolderId = targetParentId
+        if (isVideoView) currentVideoFolderId = targetParentId
         mediaFilterMode = 'all'
         const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
-        await renderTrackList(allMediaTracks, isMusicView ? 'Musics' : 'All Videos')
+        const targetFolder = targetParentId ? mediaFolders.find(f => f.id === targetParentId) : null
+        await renderTrackList(
+          allMediaTracks, 
+          targetFolder 
+            ? `${isMusicView ? 'Music' : 'Video'} Folder: ${targetFolder.name}` 
+            : (isMusicView ? 'Musics' : 'All Videos')
+        )
       })
 
       rowFolderUp.addEventListener('dragover', (e) => {
@@ -3864,6 +4428,7 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
         rowFolderUp.classList.remove('drag-target-hover')
         const trackUuid = (e as DragEvent).dataTransfer?.getData('track-uuid')
         if (!trackUuid) return
+        const targetParentId = currentFolder ? (currentFolder.parentId || currentFolder.parent_id || null) : null
 
         let uuidsToMove = [trackUuid]
         if (selectedTrackUuids.has(trackUuid) && selectedTrackUuids.size > 1) {
@@ -3872,13 +4437,13 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
 
         try {
           if (uuidsToMove.length === 1) {
-            await (window as any).api.moveTrackToMediaFolder(trackUuid, null)
+            await (window as any).api.moveTrackToMediaFolder(trackUuid, targetParentId)
             const trk = library.find(t => t.uuid === trackUuid)
-            if (trk) trk.mediaFolderId = null
+            if (trk) trk.mediaFolderId = targetParentId
           } else {
-            await (window as any).api.moveTracksToMediaFolder(uuidsToMove, null)
+            await (window as any).api.moveTracksToMediaFolder(uuidsToMove, targetParentId)
             library.forEach(t => {
-              if (uuidsToMove.includes(t.uuid)) t.mediaFolderId = null
+              if (uuidsToMove.includes(t.uuid)) t.mediaFolderId = targetParentId
             })
             selectedTrackUuids.clear()
           }
@@ -3888,16 +4453,75 @@ async function renderTrackList(tracks: TrackMetadata[], title: string = 'Musics'
           } catch {}
 
           if (typeof (window as any).showRadioToast === 'function') {
-            (window as any).showRadioToast('Arquivo movido para a raiz!')
+            (window as any).showRadioToast(targetParentId ? 'Arquivo movido para a pasta superior!' : 'Arquivo movido para a raiz!')
           }
 
           const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
           await renderTrackList(allMediaTracks, `${isMusicView ? 'Music' : 'Video'} Folder: ${currentFolder?.name}`)
         } catch (err) {
-          console.error('Failed to unfile track:', err)
+          console.error('Failed to move track up:', err)
         }
       })
     }
+
+    // 6.1 Breadcrumb intermediate folder buttons navigation & drop
+    document.querySelectorAll('.btn-breadcrumb-folder').forEach(btn => {
+      const folderId = btn.getAttribute('data-id')!
+      const folderName = btn.getAttribute('data-name') || 'Pasta'
+
+      btn.addEventListener('click', async () => {
+        if (isMusicView) currentMusicFolderId = folderId
+        if (isVideoView) currentVideoFolderId = folderId
+        const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+        await renderTrackList(allMediaTracks, `${isMusicView ? 'Music' : 'Video'} Folder: ${folderName}`)
+      })
+
+      btn.addEventListener('dragover', (e) => {
+        e.preventDefault()
+        btn.classList.add('drag-target-hover')
+      })
+      btn.addEventListener('dragleave', () => {
+        btn.classList.remove('drag-target-hover')
+      })
+      btn.addEventListener('drop', async (e) => {
+        e.preventDefault()
+        btn.classList.remove('drag-target-hover')
+        const trackUuid = (e as DragEvent).dataTransfer?.getData('track-uuid')
+        if (!trackUuid) return
+
+        let uuidsToMove = [trackUuid]
+        if (selectedTrackUuids.has(trackUuid) && selectedTrackUuids.size > 1) {
+          uuidsToMove = Array.from(selectedTrackUuids)
+        }
+
+        try {
+          if (uuidsToMove.length === 1) {
+            await (window as any).api.moveTrackToMediaFolder(trackUuid, folderId)
+            const trk = library.find(t => t.uuid === trackUuid)
+            if (trk) trk.mediaFolderId = folderId
+          } else {
+            await (window as any).api.moveTracksToMediaFolder(uuidsToMove, folderId)
+            library.forEach(t => {
+              if (uuidsToMove.includes(t.uuid)) t.mediaFolderId = folderId
+            })
+            selectedTrackUuids.clear()
+          }
+
+          try {
+            localStorage.setItem('blackbird_library_cache', JSON.stringify(library))
+          } catch {}
+
+          if (typeof (window as any).showRadioToast === 'function') {
+            (window as any).showRadioToast(`Arquivo movido para "${folderName}"!`)
+          }
+
+          const allMediaTracks = isMusicView ? library.filter(isAudioTrack) : library.filter(isVideoTrack)
+          await renderTrackList(allMediaTracks, isMusicView ? 'Musics' : 'All Videos')
+        } catch (err) {
+          console.error('Failed to move tracks to breadcrumb folder:', err)
+        }
+      })
+    })
 
     // 7. Breadcrumb Root Button Navigation & Drop
     const breadcrumbRoot = document.getElementById('btn-breadcrumb-root')
@@ -5814,7 +6438,7 @@ function renderAboutScreen(): void {
           </svg>
         </div>
         <h1 style="font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 4px; color: var(--text-main);">BlackBird Player</h1>
-        <div style="font-size: 13px; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px;">Version 1.0.10 • Modern High-Fidelity Desktop Media Player</div>
+        <div style="font-size: 13px; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px;">Version 1.0.11 • Modern High-Fidelity Desktop Media Player</div>
         
         <div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); padding: 6px 18px; border-radius: 30px; margin-bottom: 16px;">
           <i data-lucide="sparkles" style="width: 15px; height: 15px; color: var(--accent);"></i>

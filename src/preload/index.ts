@@ -51,9 +51,9 @@ const api = {
   moveHiddenTrack: (trackUuid: string, folderId: string | null) => ipcRenderer.invoke('move-hidden-track', { trackUuid, folderId }),
   hideTracks: (uuids: string[], folderId?: string | null) => ipcRenderer.invoke('hide-tracks', { uuids, folderId }),
   unhideTracks: (uuids: string[]) => ipcRenderer.invoke('unhide-tracks', uuids),
-  // Media Folders APIs (Music & Video)
-  getMediaFolders: (type: 'music' | 'video') => ipcRenderer.invoke('get-media-folders', type),
-  createMediaFolder: (name: string, type: 'music' | 'video') => ipcRenderer.invoke('create-media-folder', { name, type }),
+  // Media Folders APIs (Music, Video & Photos)
+  getMediaFolders: (type: 'music' | 'video' | 'photo') => ipcRenderer.invoke('get-media-folders', type),
+  createMediaFolder: (name: string, type: 'music' | 'video' | 'photo', parentId?: string | null) => ipcRenderer.invoke('create-media-folder', { name, type, parentId }),
   renameMediaFolder: (id: string, name: string) => ipcRenderer.invoke('rename-media-folder', { id, name }),
   deleteMediaFolder: (id: string) => ipcRenderer.invoke('delete-media-folder', id),
   moveTrackToMediaFolder: (trackUuid: string, folderId: string | null) => ipcRenderer.invoke('move-track-to-media-folder', { trackUuid, folderId }),

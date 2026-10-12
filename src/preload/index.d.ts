@@ -40,9 +40,12 @@ export interface HiddenFolder {
 export interface MediaFolder {
   id: string;
   name: string;
-  type: 'music' | 'video';
+  type: 'music' | 'video' | 'photo';
+  parent_id?: string | null;
+  parentId?: string | null;
   created_at?: string;
   trackCount?: number;
+  subfolderCount?: number;
 }
 
 export interface PluginInfo {
@@ -129,9 +132,9 @@ declare global {
       moveHiddenTrack: (trackUuid: string, folderId: string | null) => Promise<{ changes: number }>;
       hideTracks: (uuids: string[], folderId?: string | null) => Promise<{ changes: number }>;
       unhideTracks: (uuids: string[]) => Promise<{ changes: number }>;
-      // Media Folders (Music & Video)
-      getMediaFolders: (type: 'music' | 'video') => Promise<MediaFolder[]>;
-      createMediaFolder: (name: string, type: 'music' | 'video') => Promise<MediaFolder>;
+      // Media Folders (Music, Video & Photos)
+      getMediaFolders: (type: 'music' | 'video' | 'photo') => Promise<MediaFolder[]>;
+      createMediaFolder: (name: string, type: 'music' | 'video' | 'photo', parentId?: string | null) => Promise<MediaFolder>;
       renameMediaFolder: (id: string, name: string) => Promise<{ changes: number }>;
       deleteMediaFolder: (id: string) => Promise<{ changes: number }>;
       moveTrackToMediaFolder: (trackUuid: string, folderId: string | null) => Promise<{ changes: number }>;
