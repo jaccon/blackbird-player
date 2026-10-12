@@ -5814,7 +5814,7 @@ function renderAboutScreen(): void {
           </svg>
         </div>
         <h1 style="font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 4px; color: var(--text-main);">BlackBird Player</h1>
-        <div style="font-size: 13px; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px;">Version 1.1.0 • Modern High-Fidelity Desktop Media Player</div>
+        <div style="font-size: 13px; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px;">Version 1.0.10 • Modern High-Fidelity Desktop Media Player</div>
         
         <div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); padding: 6px 18px; border-radius: 30px; margin-bottom: 16px;">
           <i data-lucide="sparkles" style="width: 15px; height: 15px; color: var(--accent);"></i>
